@@ -8,6 +8,7 @@
     ],
     "allowJs": false,
     "skipLibCheck": true,
+    "skipDefaultLibCheck": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
@@ -20,6 +21,9 @@
     "incremental": true,
     "types": [
       "node"
+    ],
+    "typeRoots": [
+      "./node_modules/@types"
     ],
     "plugins": [
       {
@@ -34,6 +38,7 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next"
   ]
 }

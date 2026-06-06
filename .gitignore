@@ -13,5 +13,6 @@ yarn-error.log*
 *.swo
 *~
 .env
+tsconfig.tsbuildinfo
 dist/
 build/
