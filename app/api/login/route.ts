@@ -1,22 +1,27 @@
 import { NextResponse } from "next/server";
-import { verifyAdmin } from "../../../lib/auth";
+import { getAdminByCredentials } from "../../../lib/auth";
+import { createAdminSession } from "../../../lib/web-session";
 
 export async function POST(request: Request) {
   const { username, password } = await request.json();
-  const authenticated = verifyAdmin(username, password);
+  const admin = await getAdminByCredentials(username, password);
 
-  if (!authenticated) {
+  if (!admin) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 
-  const response = NextResponse.json({ authenticated: true });
+  const session = await createAdminSession(admin.id);
+  const response = NextResponse.json({
+    authenticated: true,
+    user: admin,
+  });
   response.cookies.set({
     name: "admin_session",
-    value: "1",
+    value: session.token,
     httpOnly: true,
     sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 24,
+    expires: session.expiresAt,
     path: "/",
   });
   return response;

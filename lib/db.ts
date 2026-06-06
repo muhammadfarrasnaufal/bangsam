@@ -1,6 +1,6 @@
 import mysql from "mysql2/promise";
 
-const connectionString = process.env.MYSQL_URL || "mysql://root:@127.0.0.1:3306/bangsam_nextjs";
+const connectionString = process.env.MYSQL_URL || "mysql://root:@127.0.0.1:3306/bangsam";
 
 const pool = mysql.createPool({
   uri: connectionString,

@@ -1,4 +1,4 @@
-﻿import { RowDataPacket } from "mysql2";
+import { RowDataPacket } from "mysql2";
 import pool from "./db";
 
 type Transaction = {
@@ -41,16 +41,59 @@ type ReportState = {
   demoMode?: boolean;
 };
 
+type AnalyticsState = {
+  period: {
+    start: string;
+    end: string;
+  };
+  operationalSummary: {
+    pendingDeposits: number;
+    pendingWithdrawals: number;
+    verifiedDeposits: number;
+    successfulWithdrawals: number;
+  };
+  dailyTrend: Array<{
+    date: string;
+    totalSetoranKg: number;
+    totalSetoranRp: number;
+    transactionCount: number;
+  }>;
+  wasteBreakdown: Array<{
+    wasteType: string;
+    totalSetoranKg: number;
+    totalSetoranRp: number;
+    transactionCount: number;
+  }>;
+  topMembers: Array<{
+    memberId: number | null;
+    memberName: string;
+    totalSetoranKg: number;
+    totalSetoranRp: number;
+    transactionCount: number;
+  }>;
+  statusBreakdown: Array<{
+    status: string;
+    count: number;
+  }>;
+};
+
+type AdminAlert = {
+  id: string;
+  level: "info" | "warning" | "critical";
+  category: "deposit" | "withdrawal" | "member" | "system" | "report";
+  title: string;
+  description: string;
+  count: number;
+  actionLabel: string;
+  actionTarget: string;
+};
+
 const activeFeatures = ["Dashboard", "Transaksi", "Setoran", "Anggota", "Laporan"];
 const programHighlights = [
   { title: "Edukasi Sampah", description: "Mengajak anggota memilah dan menabung sampah dengan lebih baik." },
   { title: "Penjemputan", description: "Layanan jemput sampah terjadwal di lingkungan komunitas." },
   { title: "Tukar Poin", description: "Tukar hasil sampah dengan uang tunai dan hadiah." },
 ];
-
-const customers = ["Ayu Putri", "Dedi Permana", "Fajar Pratama", "Rina Safitri", "Tono Santoso", "Budi Santoso", "Siti Nur", "Joko Widodo", "Dewi Ayu"];
-const types = ["Plastik", "Kertas", "Logam", "Kaca", "Kain"];
-const statuses = ["Selesai", "Menunggu", "Dibatalkan"];
 
 const defaultStats: Stats = {
   totalSetoranKg: 0,
@@ -59,199 +102,148 @@ const defaultStats: Stats = {
   transaksiHariIni: 0,
 };
 
-const memoryState: DashboardState = {
-  stats: { ...defaultStats },
-  recentTransactions: [],
-  activeUsers: [],
-  activeFeatures,
-  programHighlights,
-  lastUpdated: new Date().toISOString(),
-  demoMode: true,
-};
+function startOfDay(value: string) {
+  return `${value} 00:00:00`;
+}
 
-let dbAvailable = true;
+function endOfDay(value: string) {
+  return `${value} 23:59:59`;
+}
 
-async function ensureDatabase() {
-  if (!dbAvailable) return;
-
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS stats (
-        id INT PRIMARY KEY,
-        total_setoran_kg INT NOT NULL DEFAULT 0,
-        saldo_poin_rp BIGINT NOT NULL DEFAULT 0,
-        anggota_aktif INT NOT NULL DEFAULT 0,
-        transaksi_hari_ini INT NOT NULL DEFAULT 0,
-        last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS transactions (
-        id VARCHAR(64) PRIMARY KEY,
-        customer VARCHAR(120) NOT NULL,
-        type VARCHAR(50) NOT NULL,
-        amount VARCHAR(20) NOT NULL,
-        status VARCHAR(20) NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    const [rows] = await pool.query<RowDataPacket[]>("SELECT COUNT(*) as count FROM stats WHERE id = 1");
-    if (rows[0].count === 0) {
-      await pool.query("INSERT INTO stats (id, last_updated) VALUES (1, NOW())");
-    }
-  } catch (error) {
-    console.error("MySQL unavailable, fallback to demo mode:", error);
-    dbAvailable = false;
+function formatStatus(status: string) {
+  if (!status) {
+    return "-";
   }
-}
 
-function getRandomItem<T>(items: T[]) {
-  return items[Math.floor(Math.random() * items.length)];
-}
-
-function createTransaction(): Transaction {
-  const amountKg = [2, 3, 4, 5, 6, 7][Math.floor(Math.random() * 6)];
-  return {
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    customer: getRandomItem(customers),
-    type: getRandomItem(types),
-    amount: `${amountKg} kg`,
-    status: getRandomItem(statuses),
-    createdAt: new Date().toISOString(),
-  };
-}
-
-function parseAmount(amount: string) {
-  return Number(amount.replace(/\D/g, "")) || 0;
-}
-
-function mapStats(row: RowDataPacket): Stats {
-  return {
-    totalSetoranKg: row.total_setoran_kg ?? 0,
-    saldoPoinRp: Number(row.saldo_poin_rp ?? 0),
-    anggotaAktif: row.anggota_aktif ?? 0,
-    transaksiHariIni: row.transaksi_hari_ini ?? 0,
-  };
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function mapTransaction(row: RowDataPacket): Transaction {
+  const isSetor = row.tipe === "setor";
+  const amount = isSetor
+    ? `${Number(row.berat ?? 0).toLocaleString("id-ID")} kg`
+    : `Rp ${Number(row.jumlah ?? 0).toLocaleString("id-ID")}`;
+
   return {
-    id: row.id,
-    customer: row.customer,
-    type: row.type,
-    amount: row.amount,
-    status: row.status,
+    id: String(row.id),
+    customer: String(row.customer ?? "Tanpa Nama"),
+    type: String(row.keterangan || (isSetor ? "Setoran" : "Penarikan")),
+    amount,
+    status: formatStatus(String(row.status ?? "")),
     createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
   };
 }
 
-function getMemoryState(): DashboardState {
+function emptyDashboardState(): DashboardState {
   return {
-    ...memoryState,
-    stats: { ...memoryState.stats },
-    recentTransactions: [...memoryState.recentTransactions],
-    activeUsers: [...memoryState.activeUsers],
-    lastUpdated: new Date(memoryState.lastUpdated).toISOString(),
+    stats: defaultStats,
+    recentTransactions: [],
+    activeUsers: [],
+    activeFeatures,
+    programHighlights,
+    lastUpdated: new Date().toISOString(),
     demoMode: true,
   };
 }
 
 export async function getDashboardState(): Promise<DashboardState> {
-  await ensureDatabase();
-
-  if (!dbAvailable) {
-    return getMemoryState();
-  }
-
   try {
-    const [statsRows] = await pool.query<RowDataPacket[]>("SELECT * FROM stats WHERE id = 1 LIMIT 1");
-    const stats = statsRows.length > 0 ? mapStats(statsRows[0]) : defaultStats;
+    const [statsRows] = await pool.query<RowDataPacket[]>(
+      `
+        SELECT
+          COALESCE(SUM(CASE WHEN tipe = 'setor' AND status = 'berhasil' THEN berat ELSE 0 END), 0) AS total_setoran_kg,
+          COALESCE(SUM(CASE WHEN tipe = 'setor' AND status = 'berhasil' THEN jumlah ELSE 0 END), 0) AS saldo_poin_rp,
+          (SELECT COUNT(*) FROM users WHERE role = 'nasabah') AS anggota_aktif,
+          (SELECT COUNT(*) FROM transaksi WHERE DATE(created_at) = CURDATE()) AS transaksi_hari_ini,
+          MAX(created_at) AS last_updated
+        FROM transaksi
+      `
+    );
 
     const [transactionRows] = await pool.query<RowDataPacket[]>(
-      "SELECT id, customer, type, amount, status, created_at FROM transactions ORDER BY created_at DESC LIMIT 5"
+      `
+        SELECT t.id, u.nama AS customer, t.tipe, t.jumlah, t.keterangan, t.status, t.created_at, t.berat
+        FROM transaksi t
+        LEFT JOIN users u ON u.id = t.user_id
+        ORDER BY t.created_at DESC
+        LIMIT 5
+      `
     );
-
-    const recentTransactions = transactionRows.map(mapTransaction);
 
     const [userRows] = await pool.query<RowDataPacket[]>(
-      "SELECT DISTINCT customer FROM transactions ORDER BY created_at DESC LIMIT 5"
+      `
+        SELECT DISTINCT u.nama AS customer
+        FROM transaksi t
+        INNER JOIN users u ON u.id = t.user_id
+        ORDER BY t.created_at DESC
+        LIMIT 5
+      `
     );
-    const activeUsers = userRows.map((row) => row.customer);
 
-    const lastUpdated = statsRows[0]?.last_updated
-      ? new Date(statsRows[0].last_updated).toISOString()
-      : new Date().toISOString();
-
+    const row = statsRows[0];
     return {
-      stats,
-      recentTransactions,
-      activeUsers,
+      stats: {
+        totalSetoranKg: Number(row?.total_setoran_kg ?? 0),
+        saldoPoinRp: Number(row?.saldo_poin_rp ?? 0),
+        anggotaAktif: Number(row?.anggota_aktif ?? 0),
+        transaksiHariIni: Number(row?.transaksi_hari_ini ?? 0),
+      },
+      recentTransactions: transactionRows.map(mapTransaction),
+      activeUsers: userRows.map((entry) => String(entry.customer)),
       activeFeatures,
       programHighlights,
-      lastUpdated,
+      lastUpdated: row?.last_updated ? new Date(row.last_updated).toISOString() : new Date().toISOString(),
       demoMode: false,
     };
   } catch (error) {
-    console.error("MySQL query failed, fallback to demo mode:", error);
-    dbAvailable = false;
-    return getMemoryState();
+    console.error("MySQL unavailable, fallback to demo mode:", error);
+    return emptyDashboardState();
   }
 }
 
 export async function getReportState(start: string, end: string): Promise<ReportState> {
-  await ensureDatabase();
-
   const startDate = new Date(start);
   const endDate = new Date(end);
   if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
     throw new Error("Invalid date range");
   }
 
-  if (!dbAvailable) {
-    const filteredTransactions = memoryState.recentTransactions.filter((tx) => {
-      const created = new Date(tx.createdAt);
-      return created >= startDate && created <= endDate;
-    });
-    const totalSetoranKg = filteredTransactions.reduce((sum, tx) => sum + parseAmount(tx.amount), 0);
-    const uniqueUsers = new Set(filteredTransactions.map((tx) => tx.customer)).size;
-
-    return {
-      stats: memoryState.stats,
-      reportTransactions: filteredTransactions,
-      reportStats: {
-        totalSetoranKg,
-        saldoPoinRp: totalSetoranKg * 1750,
-        transaksiCount: filteredTransactions.length,
-        uniqueUsers,
-      },
-      start: startDate.toISOString(),
-      end: endDate.toISOString(),
-      demoMode: true,
-    };
-  }
-
   try {
     const [rows] = await pool.query<RowDataPacket[]>(
-      "SELECT id, customer, type, amount, status, created_at FROM transactions WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC",
-      [startDate, endDate]
+      `
+        SELECT t.id, u.nama AS customer, t.tipe, t.jumlah, t.keterangan, t.status, t.created_at, t.berat
+        FROM transaksi t
+        LEFT JOIN users u ON u.id = t.user_id
+        WHERE t.created_at BETWEEN ? AND ?
+        ORDER BY t.created_at DESC
+      `,
+      [startOfDay(start), endOfDay(end)]
     );
+
     const reportTransactions = rows.map(mapTransaction);
-    const totalSetoranKg = reportTransactions.reduce((sum, tx) => sum + parseAmount(tx.amount), 0);
-    const [uniqueRows] = await pool.query<RowDataPacket[]>(
-      "SELECT COUNT(DISTINCT customer) as count FROM transactions WHERE created_at BETWEEN ? AND ?",
-      [startDate, endDate]
-    );
-    const uniqueUsers = Number(uniqueRows[0]?.count ?? 0);
+    const totalSetoranKg = rows.reduce((sum, row) => {
+      if (row.tipe !== "setor" || row.status !== "berhasil") {
+        return sum;
+      }
+
+      return sum + Number(row.berat ?? 0);
+    }, 0);
+    const saldoPoinRp = rows.reduce((sum, row) => {
+      if (row.tipe !== "setor" || row.status !== "berhasil") {
+        return sum;
+      }
+
+      return sum + Number(row.jumlah ?? 0);
+    }, 0);
+    const uniqueUsers = new Set(rows.map((row) => String(row.customer ?? ""))).size;
 
     return {
       stats: defaultStats,
       reportTransactions,
       reportStats: {
         totalSetoranKg,
-        saldoPoinRp: totalSetoranKg * 1750,
-        transaksiCount: reportTransactions.length,
+        saldoPoinRp,
+        transaksiCount: rows.length,
         uniqueUsers,
       },
       start: startDate.toISOString(),
@@ -259,60 +251,282 @@ export async function getReportState(start: string, end: string): Promise<Report
       demoMode: false,
     };
   } catch (error) {
-    console.error("MySQL report query failed, fallback to demo mode:", error);
-    dbAvailable = false;
-    return getReportState(start, end);
+    console.error("MySQL report query failed:", error);
+    return {
+      stats: defaultStats,
+      reportTransactions: [],
+      reportStats: {
+        totalSetoranKg: 0,
+        saldoPoinRp: 0,
+        transaksiCount: 0,
+        uniqueUsers: 0,
+      },
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+      demoMode: true,
+    };
   }
 }
 
 export async function addTransaction(): Promise<DashboardState> {
-  await ensureDatabase();
+  return getDashboardState();
+}
 
-  const transaction = createTransaction();
-  const amountValue = parseInt(transaction.amount, 10);
-
-  if (!dbAvailable) {
-    memoryState.recentTransactions.unshift(transaction);
-    memoryState.recentTransactions = memoryState.recentTransactions.slice(0, 5);
-    memoryState.stats.totalSetoranKg += amountValue;
-    memoryState.stats.saldoPoinRp += amountValue * 1750;
-    memoryState.stats.transaksiHariIni += 1;
-    if (!memoryState.activeUsers.includes(transaction.customer)) {
-      memoryState.activeUsers.unshift(transaction.customer);
-      memoryState.activeUsers = memoryState.activeUsers.slice(0, 5);
-      memoryState.stats.anggotaAktif += 1;
-    }
-    memoryState.lastUpdated = new Date().toISOString();
-    return getMemoryState();
+export async function getAnalyticsState(start: string, end: string): Promise<AnalyticsState> {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new Error("Invalid date range");
   }
 
   try {
-    await pool.query(
-      "INSERT INTO transactions (id, customer, type, amount, status) VALUES (?, ?, ?, ?, ?)",
-      [transaction.id, transaction.customer, transaction.type, transaction.amount, transaction.status]
-    );
+    const [summaryRows, dailyRows, wasteRows, memberRows, statusRows] = await Promise.all([
+      pool.query<RowDataPacket[]>(
+        `
+          SELECT
+            (SELECT COUNT(*) FROM setoran WHERE status = 'pending' AND created_at BETWEEN ? AND ?) AS pending_deposits,
+            (SELECT COUNT(*) FROM penarikan WHERE status = 'pending' AND created_at BETWEEN ? AND ?) AS pending_withdrawals,
+            (SELECT COUNT(*) FROM setoran WHERE status = 'verified' AND created_at BETWEEN ? AND ?) AS verified_deposits,
+            (SELECT COUNT(*) FROM penarikan WHERE status = 'success' AND created_at BETWEEN ? AND ?) AS successful_withdrawals
+        `,
+        [startOfDay(start), endOfDay(end), startOfDay(start), endOfDay(end), startOfDay(start), endOfDay(end), startOfDay(start), endOfDay(end)]
+      ),
+      pool.query<RowDataPacket[]>(
+        `
+          SELECT
+            DATE(created_at) AS date,
+            COALESCE(SUM(CASE WHEN tipe = 'setor' AND status = 'berhasil' THEN berat ELSE 0 END), 0) AS total_setoran_kg,
+            COALESCE(SUM(CASE WHEN tipe = 'setor' AND status = 'berhasil' THEN jumlah ELSE 0 END), 0) AS total_setoran_rp,
+            COUNT(*) AS transaction_count
+          FROM transaksi
+          WHERE created_at BETWEEN ? AND ?
+          GROUP BY DATE(created_at)
+          ORDER BY DATE(created_at) ASC
+        `,
+        [startOfDay(start), endOfDay(end)]
+      ),
+      pool.query<RowDataPacket[]>(
+        `
+          SELECT
+            COALESCE(keterangan, 'Lainnya') AS waste_type,
+            COALESCE(SUM(CASE WHEN tipe = 'setor' AND status = 'berhasil' THEN berat ELSE 0 END), 0) AS total_setoran_kg,
+            COALESCE(SUM(CASE WHEN tipe = 'setor' AND status = 'berhasil' THEN jumlah ELSE 0 END), 0) AS total_setoran_rp,
+            COUNT(*) AS transaction_count
+          FROM transaksi
+          WHERE created_at BETWEEN ? AND ?
+            AND tipe = 'setor'
+          GROUP BY COALESCE(keterangan, 'Lainnya')
+          ORDER BY total_setoran_rp DESC, total_setoran_kg DESC
+          LIMIT 10
+        `,
+        [startOfDay(start), endOfDay(end)]
+      ),
+      pool.query<RowDataPacket[]>(
+        `
+          SELECT
+            u.id AS member_id,
+            COALESCE(u.nama, 'Tanpa Nama') AS member_name,
+            COALESCE(SUM(CASE WHEN t.tipe = 'setor' AND t.status = 'berhasil' THEN t.berat ELSE 0 END), 0) AS total_setoran_kg,
+            COALESCE(SUM(CASE WHEN t.tipe = 'setor' AND t.status = 'berhasil' THEN t.jumlah ELSE 0 END), 0) AS total_setoran_rp,
+            COUNT(*) AS transaction_count
+          FROM transaksi t
+          LEFT JOIN users u ON u.id = t.user_id
+          WHERE t.created_at BETWEEN ? AND ?
+          GROUP BY u.id, u.nama
+          ORDER BY total_setoran_rp DESC, total_setoran_kg DESC, transaction_count DESC
+          LIMIT 10
+        `,
+        [startOfDay(start), endOfDay(end)]
+      ),
+      pool.query<RowDataPacket[]>(
+        `
+          SELECT status, COUNT(*) AS count
+          FROM transaksi
+          WHERE created_at BETWEEN ? AND ?
+          GROUP BY status
+          ORDER BY count DESC
+        `,
+        [startOfDay(start), endOfDay(end)]
+      ),
+    ]);
 
-    const [statsRows] = await pool.query<RowDataPacket[]>("SELECT * FROM stats WHERE id = 1 LIMIT 1");
-    const prevStats = statsRows.length > 0 ? mapStats(statsRows[0]) : defaultStats;
+    const summary = summaryRows[0][0] ?? {};
 
-    const totalSetoranKg = prevStats.totalSetoranKg + amountValue;
-    const saldoPoinRp = prevStats.saldoPoinRp + amountValue * 1750;
-    const transaksiHariIni = prevStats.transaksiHariIni + 1;
-
-    const [userRows] = await pool.query<RowDataPacket[]>(
-      "SELECT COUNT(DISTINCT customer) as count FROM transactions"
-    );
-    const anggotaAktif = Number(userRows[0]?.count ?? 0);
-
-    await pool.query(
-      "UPDATE stats SET total_setoran_kg = ?, saldo_poin_rp = ?, transaksi_hari_ini = ?, anggota_aktif = ?, last_updated = NOW() WHERE id = 1",
-      [totalSetoranKg, saldoPoinRp, transaksiHariIni, anggotaAktif]
-    );
-
-    return getDashboardState();
+    return {
+      period: {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+      },
+      operationalSummary: {
+        pendingDeposits: Number(summary.pending_deposits ?? 0),
+        pendingWithdrawals: Number(summary.pending_withdrawals ?? 0),
+        verifiedDeposits: Number(summary.verified_deposits ?? 0),
+        successfulWithdrawals: Number(summary.successful_withdrawals ?? 0),
+      },
+      dailyTrend: dailyRows[0].map((row) => ({
+        date: row.date ? new Date(row.date).toISOString() : new Date().toISOString(),
+        totalSetoranKg: Number(row.total_setoran_kg ?? 0),
+        totalSetoranRp: Number(row.total_setoran_rp ?? 0),
+        transactionCount: Number(row.transaction_count ?? 0),
+      })),
+      wasteBreakdown: wasteRows[0].map((row) => ({
+        wasteType: String(row.waste_type ?? "Lainnya"),
+        totalSetoranKg: Number(row.total_setoran_kg ?? 0),
+        totalSetoranRp: Number(row.total_setoran_rp ?? 0),
+        transactionCount: Number(row.transaction_count ?? 0),
+      })),
+      topMembers: memberRows[0].map((row) => ({
+        memberId: row.member_id == null ? null : Number(row.member_id),
+        memberName: String(row.member_name ?? "Tanpa Nama"),
+        totalSetoranKg: Number(row.total_setoran_kg ?? 0),
+        totalSetoranRp: Number(row.total_setoran_rp ?? 0),
+        transactionCount: Number(row.transaction_count ?? 0),
+      })),
+      statusBreakdown: statusRows[0].map((row) => ({
+        status: formatStatus(String(row.status ?? "-")),
+        count: Number(row.count ?? 0),
+      })),
+    };
   } catch (error) {
-    console.error("MySQL transaction insert failed, fallback to demo mode:", error);
-    dbAvailable = false;
-    return addTransaction();
+    console.error("MySQL analytics query failed:", error);
+    return {
+      period: {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+      },
+      operationalSummary: {
+        pendingDeposits: 0,
+        pendingWithdrawals: 0,
+        verifiedDeposits: 0,
+        successfulWithdrawals: 0,
+      },
+      dailyTrend: [],
+      wasteBreakdown: [],
+      topMembers: [],
+      statusBreakdown: [],
+    };
+  }
+}
+
+export async function getAdminAlerts(): Promise<{ generatedAt: string; items: AdminAlert[] }> {
+  try {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `
+        SELECT
+          (SELECT COUNT(*) FROM setoran WHERE status = 'pending') AS pending_deposits,
+          (SELECT COUNT(*) FROM penarikan WHERE status = 'pending') AS pending_withdrawals,
+          (SELECT COUNT(*) FROM users WHERE role = 'nasabah' AND id NOT IN (SELECT DISTINCT user_id FROM transaksi WHERE user_id IS NOT NULL)) AS inactive_members,
+          (SELECT COUNT(*) FROM transaksi WHERE DATE(created_at) = CURDATE()) AS transactions_today,
+          (SELECT COUNT(*) FROM transaksi WHERE tipe = 'tarik' AND status = 'failed') AS failed_withdrawals
+      `
+    );
+
+    const row = rows[0] ?? {};
+    const alerts: AdminAlert[] = [];
+
+    const pendingDeposits = Number(row.pending_deposits ?? 0);
+    if (pendingDeposits > 0) {
+      alerts.push({
+        id: "pending-deposits",
+        level: pendingDeposits >= 10 ? "critical" : "warning",
+        category: "deposit",
+        title: "Setoran menunggu verifikasi",
+        description: `${pendingDeposits} setoran masih menunggu persetujuan admin atau petugas.`,
+        count: pendingDeposits,
+        actionLabel: "Lihat setoran",
+        actionTarget: "/api/deposits?status=pending&page=1&limit=10",
+      });
+    }
+
+    const pendingWithdrawals = Number(row.pending_withdrawals ?? 0);
+    if (pendingWithdrawals > 0) {
+      alerts.push({
+        id: "pending-withdrawals",
+        level: pendingWithdrawals >= 5 ? "critical" : "warning",
+        category: "withdrawal",
+        title: "Penarikan menunggu proses",
+        description: `${pendingWithdrawals} penarikan saldo belum diproses.`,
+        count: pendingWithdrawals,
+        actionLabel: "Lihat penarikan",
+        actionTarget: "/api/withdrawals?status=pending&page=1&limit=10",
+      });
+    }
+
+    const failedWithdrawals = Number(row.failed_withdrawals ?? 0);
+    if (failedWithdrawals > 0) {
+      alerts.push({
+        id: "failed-withdrawals",
+        level: "warning",
+        category: "withdrawal",
+        title: "Ada penarikan gagal",
+        description: `${failedWithdrawals} transaksi penarikan berstatus gagal dan perlu ditinjau ulang.`,
+        count: failedWithdrawals,
+        actionLabel: "Tinjau transaksi",
+        actionTarget: "/api/transactions?tipe=tarik&status=failed&page=1&limit=10",
+      });
+    }
+
+    const inactiveMembers = Number(row.inactive_members ?? 0);
+    if (inactiveMembers > 0) {
+      alerts.push({
+        id: "inactive-members",
+        level: "info",
+        category: "member",
+        title: "Anggota belum pernah transaksi",
+        description: `${inactiveMembers} anggota belum memiliki riwayat transaksi.`,
+        count: inactiveMembers,
+        actionLabel: "Lihat anggota",
+        actionTarget: "/api/members?page=1&limit=10",
+      });
+    }
+
+    const transactionsToday = Number(row.transactions_today ?? 0);
+    if (transactionsToday === 0) {
+      alerts.push({
+        id: "no-transactions-today",
+        level: "info",
+        category: "report",
+        title: "Belum ada transaksi hari ini",
+        description: "Belum ada transaksi masuk hari ini. Cek operasional dan aktivitas anggota.",
+        count: 0,
+        actionLabel: "Lihat dashboard",
+        actionTarget: "/api/dashboard",
+      });
+    }
+
+    if (alerts.length === 0) {
+      alerts.push({
+        id: "all-good",
+        level: "info",
+        category: "system",
+        title: "Operasional normal",
+        description: "Tidak ada alert prioritas saat ini. Semua antrean utama terlihat aman.",
+        count: 0,
+        actionLabel: "Lihat ringkasan",
+        actionTarget: "/api/admin-summary",
+      });
+    }
+
+    return {
+      generatedAt: new Date().toISOString(),
+      items: alerts,
+    };
+  } catch (error) {
+    console.error("MySQL admin alerts query failed:", error);
+    return {
+      generatedAt: new Date().toISOString(),
+      items: [
+        {
+          id: "alerts-unavailable",
+          level: "warning",
+          category: "system",
+          title: "Alerts tidak tersedia",
+          description: "Backend gagal memuat alerts operasional saat ini.",
+          count: 0,
+          actionLabel: "Refresh",
+          actionTarget: "/api/admin-alerts",
+        },
+      ],
+    };
   }
 }

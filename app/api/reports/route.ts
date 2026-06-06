@@ -1,7 +1,13 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getReportState } from "../../../lib/data";
+import { requireWebAuth } from "../../../lib/route-auth";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const auth = await requireWebAuth(request);
+  if (auth.response) {
+    return auth.response;
+  }
+
   const url = new URL(request.url);
   const start = url.searchParams.get("start");
   const end = url.searchParams.get("end");

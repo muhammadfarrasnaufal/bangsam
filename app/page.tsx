@@ -1,6 +1,25 @@
 ﻿"use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { 
+  LayoutDashboard, 
+  ArrowLeftRight, 
+  PlusCircle, 
+  Users, 
+  FileText, 
+  LogOut, 
+  RefreshCw, 
+  Download, 
+  Calendar,
+  TrendingUp,
+  Wallet,
+  Scale,
+  Activity,
+  ChevronRight,
+  ShieldCheck,
+  Zap
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type Transaction = {
   id: string;
@@ -142,27 +161,7 @@ export default function HomePage() {
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
-
-  async function checkAuth() {
-    try {
-      const response = await fetch("/api/auth");
-      if (!response.ok) {
-        setAuthenticated(false);
-      } else {
-        const data = await response.json();
-        setAuthenticated(data.authenticated);
-        if (data.authenticated) {
-          await refreshDashboard();
-          await loadReport(reportStart, reportEnd);
-        }
-      }
-    } catch (error) {
-      console.error("Auth check failed:", error);
-      setAuthenticated(false);
-    } finally {
-      setAuthChecked(true);
-    }
-  }
+  const initialReportRangeRef = useRef({ start: reportStart, end: reportEnd });
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -245,35 +244,57 @@ export default function HomePage() {
     }
   }
 
-  async function addRemoteTransaction() {
-    if (!authenticated) return;
-    try {
-      const response = await fetch("/api/transactions", { method: "POST" });
-      if (!response.ok) {
-        throw new Error("Gagal menambahkan transaksi");
-      }
-      const data: DashboardData = await response.json();
-      setStats(data.stats);
-      setRecentTransactions(data.recentTransactions);
-      setActiveUsers(data.activeUsers);
-      setFeatures(data.activeFeatures);
-      setLastUpdated(new Date(data.lastUpdated).toLocaleTimeString("id-ID"));
-      setBackendReady(!data.demoMode);
-    } catch (error) {
-      console.error(error);
-      setBackendReady(false);
-    }
-  }
-
   useEffect(() => {
-    checkAuth();
+    let cancelled = false;
+
+    async function runAuthCheck() {
+      try {
+        const response = await fetch("/api/auth");
+        if (!response.ok) {
+          if (!cancelled) {
+            setAuthenticated(false);
+          }
+          return;
+        }
+
+        const data = await response.json();
+        if (cancelled) {
+          return;
+        }
+
+        setAuthenticated(data.authenticated);
+        if (data.authenticated) {
+          const { start, end } = initialReportRangeRef.current;
+          await refreshDashboard();
+          await loadReport(start, end);
+        }
+      } catch (error) {
+        console.error("Auth check failed:", error);
+        if (!cancelled) {
+          setAuthenticated(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthChecked(true);
+        }
+      }
+    }
+
+    void runAuthCheck();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!authenticated) return;
-    const interval = window.setInterval(addRemoteTransaction, 10000);
+    const interval = window.setInterval(() => {
+      refreshDashboard();
+      loadReport(reportStart, reportEnd);
+    }, 15000);
     return () => window.clearInterval(interval);
-  }, [authenticated]);
+  }, [authenticated, reportEnd, reportStart]);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -313,241 +334,321 @@ export default function HomePage() {
 
   if (!authenticated) {
     return (
-      <main className="page-shell login-shell">
-        <div className="login-card">
-          <h2>Login Admin Bank Sampah</h2>
-          <form onSubmit={handleLogin}>
-            <div className="form-field">
-              <label htmlFor="username">Nama Pengguna</label>
-              <input
-                id="username"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-                required
-              />
+      <main className="min-h-screen flex items-center justify-center p-4 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100 via-slate-50 to-white">
+        <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 shadow-2xl shadow-blue-200/50 border border-blue-50">
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4">
+              <Zap className="w-8 h-8 text-primary" />
             </div>
-            <div className="form-field">
-              <label htmlFor="password">Kata Sandi</label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-              />
+            <h2 className="text-2xl font-bold text-slate-900">Admin Bank Sampah</h2>
+            <p className="text-slate-500 mt-2 text-center text-sm">Masuk untuk mengelola ekosistem bank sampah Anda</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div className="space-y-2">
+              <label htmlFor="username" className="text-sm font-semibold text-slate-700 ml-1">Nama Pengguna</label>
+              <div className="relative">
+                <input
+                  id="username"
+                  className="w-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-primary outline-none transition-all pl-11"
+                  placeholder="admin"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  required
+                />
+                <Users className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+              </div>
             </div>
-            {loginError && <p style={{ color: "#b91c1c" }}>{loginError}</p>}
-            <button type="submit" className="button">
-              Masuk
+
+            <div className="space-y-2">
+              <label htmlFor="password" className="text-sm font-semibold text-slate-700 ml-1">Kata Sandi</label>
+              <div className="relative">
+                <input
+                  id="password"
+                  type="password"
+                  className="w-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-primary outline-none transition-all pl-11"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                />
+                <ShieldCheck className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+              </div>
+            </div>
+
+            {loginError && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs font-medium flex items-center gap-2">
+                <div className="w-1 h-1 bg-red-600 rounded-full" />
+                {loginError}
+              </div>
+            )}
+
+            <button type="submit" className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-2xl shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2 group">
+              Masuk Sekarang
+              <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </button>
           </form>
+
+          <div className="mt-8 pt-6 border-t border-slate-100 flex justify-center">
+            <p className="text-xs text-slate-400 font-medium tracking-wide">VERSION 2.0 • BUILT WITH PRIDE</p>
+          </div>
         </div>
       </main>
     );
   }
 
+  const navItemIcons: Record<string, any> = {
+    Dashboard: LayoutDashboard,
+    Transaksi: ArrowLeftRight,
+    Setoran: PlusCircle,
+    Anggota: Users,
+    Laporan: FileText,
+  };
+
   return (
-    <main className="page-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-dot" />
+    <main className="min-h-screen bg-slate-50/50 lg:grid lg:grid-cols-[280px_1fr] flex flex-col">
+      {/* Sidebar */}
+      <aside className="lg:sticky lg:top-0 lg:h-screen border-r border-slate-200 bg-white p-6 flex flex-col gap-8">
+        <div className="flex items-center gap-3 px-2">
+          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
+            <Zap className="w-6 h-6 text-white" />
+          </div>
           <div>
-            <p className="brand-title">Bank Sampah Admin</p>
-            <p style={{ margin: 0, color: "#6b7280", fontSize: "0.95rem" }}>Panel manajemen</p>
+            <h2 className="text-lg font-bold text-slate-900 leading-none">Bank Sampah</h2>
+            <p className="text-xs font-medium text-slate-500 mt-1 uppercase tracking-wider">Administrator</p>
           </div>
         </div>
 
-        <nav>
-          {navItems.map((item) => (
-            <a key={item} className={`nav-item ${item === "Dashboard" ? "active" : ""}`} href="#">
-              {item}
-            </a>
-          ))}
+        <nav className="flex flex-col gap-1">
+          {navItems.map((item) => {
+            const Icon = navItemIcons[item] || LayoutDashboard;
+            const isActive = item === "Dashboard";
+            return (
+              <a
+                key={item}
+                href="#"
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-200 font-medium group",
+                  isActive 
+                    ? "bg-primary text-white shadow-lg shadow-primary/20" 
+                    : "text-slate-600 hover:bg-slate-50 hover:text-primary"
+                )}
+              >
+                <Icon className={cn("w-5 h-5", isActive ? "text-white" : "text-slate-400 group-hover:text-primary")} />
+                {item}
+              </a>
+            );
+          })}
         </nav>
 
-        <div className="section">
-          <h2 className="section-title">Info Admin</h2>
-          <p style={{ margin: "0.75rem 0 0", color: "#4b5563" }}>
-            Kelola setoran sampah, transaksi, anggota, dan laporan mudah dari satu dashboard.
-          </p>
-          <p style={{ margin: "1rem 0 0", fontSize: "0.9rem", color: "#6b7280" }}>
-            Terakhir diperbarui: {lastUpdated || "Memuat..."}
-          </p>
-        </div>
+        <div className="mt-auto space-y-4">
+          <div className="bg-slate-50 rounded-3xl p-5 border border-slate-100">
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-4 h-4 text-emerald-500" />
+              <h3 className="text-sm font-bold text-slate-900">Live Status</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {features.map((feature) => (
+                <span
+                  key={feature}
+                  className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-tight"
+                >
+                  {feature}
+                </span>
+              ))}
+            </div>
+          </div>
 
-        <div className="section">
-          <h2 className="section-title">Fitur Aktif</h2>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.75rem" }}>
-            {features.map((feature) => (
-              <span
-                key={feature}
-                style={{
-                  display: "inline-flex",
-                  padding: "0.4rem 0.75rem",
-                  borderRadius: "9999px",
-                  background: "#ecfdf5",
-                  color: "#166534",
-                  fontSize: "0.85rem",
-                  fontWeight: 600,
-                }}
-              >
-                {feature}
-              </span>
-            ))}
-          </div>
-          <p style={{ margin: "0.75rem 0 0", color: "#4b5563" }}>
-            Semua fitur aktif dan siap dipakai untuk melihat pemakaian nyata.
-          </p>
-          <div style={{ marginTop: "1rem" }}>
-            <div style={{ fontWeight: 700, marginBottom: "0.5rem" }}>Pengguna Aktif</div>
-            {activeUsers.length ? (
-              <ul style={{ margin: 0, paddingLeft: "1.2rem", color: "#374151" }}>
-                {activeUsers.map((user) => (
-                  <li key={user}>{user}</li>
-                ))}
-              </ul>
-            ) : (
-              <p style={{ margin: 0, color: "#6b7280" }}>Belum ada pengguna aktif saat ini.</p>
-            )}
-          </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-red-50 text-red-600 font-bold text-sm hover:bg-red-100 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Keluar Panel
+          </button>
         </div>
       </aside>
 
-      <section className="panel">
-        <div className="header">
+      {/* Main Content */}
+      <section className="p-4 lg:p-10 flex flex-col gap-8 max-w-7xl mx-auto w-full">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="header-title">Halo, Admin!</h1>
-            <p className="subtitle">Ringkasan aktivitas bank sampah dan update terbaru.</p>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Selamat Datang, Admin!</h1>
+            <p className="text-slate-500 font-medium mt-1">Pantau perkembangan ekosistem bank sampah Anda hari ini.</p>
           </div>
-          <div>
-            <div className="badge" style={{ marginBottom: "0.75rem" }}>
-              {backendReady ? "Backend Terhubung" : "Mode Demo / Fallback"}
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border",
+              backendReady 
+                ? "bg-emerald-50 text-emerald-600 border-emerald-100" 
+                : "bg-amber-50 text-amber-600 border-amber-100"
+            )}>
+              <div className={cn("w-2 h-2 rounded-full animate-pulse", backendReady ? "bg-emerald-500" : "bg-amber-500")} />
+              {backendReady ? "Connected" : "Demo Mode"}
             </div>
-            <button className="button" onClick={handleLogout}>
-              Logout
+            <button 
+              onClick={refreshDashboard}
+              disabled={loading}
+              className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={cn("w-5 h-5 text-slate-600", loading && "animate-spin")} />
             </button>
           </div>
         </div>
 
-        {loading ? (
-          <div className="section">
-            <p>Memuat data dashboard...</p>
-          </div>
-        ) : (
-          <div className="cards">
-            {cards.map((stat) => (
-              <div key={stat.title} className="card">
-                <p className="card-title">{stat.title}</p>
-                <p className="card-value">{stat.value}</p>
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {cards.map((stat, idx) => {
+            const icons = [Scale, Wallet, Users, ArrowLeftRight, Activity];
+            const colors = ["text-blue-600", "text-emerald-600", "text-purple-600", "text-orange-600", "text-pink-600"];
+            const bgColors = ["bg-blue-50", "bg-emerald-50", "bg-purple-50", "bg-orange-50", "bg-pink-50"];
+            const Icon = icons[idx] || Activity;
+            
+            return (
+              <div key={stat.title} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-shadow group">
+                <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110", bgColors[idx % bgColors.length])}>
+                  <Icon className={cn("w-6 h-6", colors[idx % colors.length])} />
+                </div>
+                <p className="text-slate-500 text-sm font-bold uppercase tracking-wider">{stat.title}</p>
+                <p className="text-2xl font-black text-slate-900 mt-1">{stat.value}</p>
               </div>
-            ))}
-          </div>
-        )}
-
-        <div className="section">
-          <div className="section-header">
-            <h2 className="section-title">Ringkasan Program</h2>
-            <span className="badge">Terbaru</span>
-          </div>
-          <div className="overview-grid">
-            {programHighlights.map((item) => (
-              <div key={item.title} className="overview-card">
-                <h3 style={{ margin: 0, fontSize: "1rem" }}>{item.title}</h3>
-                <p>{item.description}</p>
-              </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
 
-        <div className="section">
-          <div className="section-header">
-            <h2 className="section-title">Laporan Periode</h2>
-            <span className="badge">Filter</span>
-          </div>
-          <div className="filter-row">
-            <label>
-              Mulai
-              <input
-                type="date"
-                value={reportStart}
-                onChange={(event) => setReportStart(event.target.value)}
-              />
-            </label>
-            <label>
-              Selesai
-              <input
-                type="date"
-                value={reportEnd}
-                onChange={(event) => setReportEnd(event.target.value)}
-              />
-            </label>
-            <button className="button" onClick={() => loadReport(reportStart, reportEnd)}>
-              Refresh Laporan
-            </button>
+        {/* Reports & Table Section */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          {/* Main Table */}
+          <div className="xl:col-span-2 space-y-6">
+            <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
+              <div className="p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center">
+                    <TrendingUp className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold text-slate-900">Transaksi Terbaru</h2>
+                    <p className="text-sm font-medium text-slate-400">Periode: {reportPeriod}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => downloadCSV(reportData)} className="flex items-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-sm font-bold transition-colors">
+                    <Download className="w-4 h-4" />
+                    CSV
+                  </button>
+                  <button onClick={() => exportPDF(reportData)} className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold transition-colors">
+                    <FileText className="w-4 h-4" />
+                    PDF
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                {reportLoading ? (
+                  <div className="p-12 flex flex-col items-center justify-center text-slate-400 gap-3">
+                    <RefreshCw className="w-8 h-8 animate-spin" />
+                    <p className="font-bold">Memperbarui Data...</p>
+                  </div>
+                ) : (
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/50">
+                        <th className="px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Pelanggan</th>
+                        <th className="px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Tipe</th>
+                        <th className="px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Jumlah</th>
+                        <th className="px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {reportTransactions.map((transaction) => (
+                        <tr key={transaction.id} className="hover:bg-slate-50/50 transition-colors group">
+                          <td className="px-8 py-5">
+                            <p className="font-bold text-slate-900">{transaction.customer}</p>
+                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1">{new Date(transaction.createdAt).toLocaleString("id-ID")}</p>
+                          </td>
+                          <td className="px-8 py-5">
+                            <span className={cn(
+                              "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
+                              transaction.type.includes("Setoran") ? "bg-blue-50 text-blue-600 border-blue-100" : "bg-purple-50 text-purple-600 border-purple-100"
+                            )}>
+                              {transaction.type}
+                            </span>
+                          </td>
+                          <td className="px-8 py-5">
+                            <p className="font-black text-slate-900 italic">{transaction.amount}</p>
+                          </td>
+                          <td className="px-8 py-5">
+                            <div className="flex items-center gap-2">
+                              <div className={cn("w-1.5 h-1.5 rounded-full", transaction.status === "Selesai" ? "bg-emerald-500" : "bg-amber-500")} />
+                              <p className="text-sm font-bold text-slate-700">{transaction.status}</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
           </div>
 
-          <div className="overview-grid">
-            <div className="overview-card">
-              <p style={{ margin: 0, color: "#6b7280", fontSize: "0.95rem" }}>Total Setoran</p>
-              <p style={{ margin: "0.75rem 0 0", fontSize: "1.45rem", fontWeight: 700 }}>
-                {formatKg(reportStats.totalSetoranKg)}
-              </p>
+          {/* Sidebar Info/Filters */}
+          <div className="flex flex-col gap-8">
+            {/* Filter Card */}
+            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
+                  <Calendar className="w-5 h-5 text-blue-600" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">Filter Laporan</h3>
+              </div>
+              
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Mulai Dari</label>
+                  <input
+                    type="date"
+                    value={reportStart}
+                    onChange={(event) => setReportStart(event.target.value)}
+                    className="w-full bg-slate-50 border-0 ring-1 ring-slate-100 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-primary outline-none font-bold text-slate-700"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Hingga Akhir</label>
+                  <input
+                    type="date"
+                    value={reportEnd}
+                    onChange={(event) => setReportEnd(event.target.value)}
+                    className="w-full bg-slate-50 border-0 ring-1 ring-slate-100 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-primary outline-none font-bold text-slate-700"
+                  />
+                </div>
+                <button 
+                  onClick={() => loadReport(reportStart, reportEnd)}
+                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-slate-200 mt-2"
+                >
+                  Terapkan Filter
+                </button>
+              </div>
             </div>
-            <div className="overview-card">
-              <p style={{ margin: 0, color: "#6b7280", fontSize: "0.95rem" }}>Saldo Poin</p>
-              <p style={{ margin: "0.75rem 0 0", fontSize: "1.45rem", fontWeight: 700 }}>
-                {formatRp(reportStats.saldoPoinRp)}
-              </p>
-            </div>
-            <div className="overview-card">
-              <p style={{ margin: 0, color: "#6b7280", fontSize: "0.95rem" }}>Transaksi</p>
-              <p style={{ margin: "0.75rem 0 0", fontSize: "1.45rem", fontWeight: 700 }}>
-                {reportStats.transaksiCount}
-              </p>
-            </div>
-            <div className="overview-card">
-              <p style={{ margin: 0, color: "#6b7280", fontSize: "0.95rem" }}>Pengguna Unik</p>
-              <p style={{ margin: "0.75rem 0 0", fontSize: "1.45rem", fontWeight: 700 }}>
-                {reportStats.uniqueUsers}
-              </p>
-            </div>
-          </div>
 
-          <div className="export-row">
-            <button className="button" onClick={() => downloadCSV(reportData)}>
-              Export CSV
-            </button>
-            <button className="button" onClick={() => exportPDF(reportData)}>
-              Export PDF
-            </button>
-          </div>
-
-          {reportLoading ? (
-            <p>Memuat laporan...</p>
-          ) : (
-            <table className="transaction-table">
-              <thead>
-                <tr>
-                  <th>Nama</th>
-                  <th>Jenis</th>
-                  <th>Jumlah</th>
-                  <th>Status</th>
-                  <th>Waktu</th>
-                </tr>
-              </thead>
-              <tbody>
-                {reportTransactions.map((transaction) => (
-                  <tr key={transaction.id}>
-                    <td>{transaction.customer}</td>
-                    <td>{transaction.type}</td>
-                    <td>{transaction.amount}</td>
-                    <td>{transaction.status}</td>
-                    <td>{new Date(transaction.createdAt).toLocaleString("id-ID")}</td>
-                  </tr>
+            {/* Highlights */}
+            <div className="bg-emerald-900 rounded-[2.5rem] p-8 shadow-xl shadow-emerald-900/20 text-white space-y-6 relative overflow-hidden group">
+              <div className="absolute -right-4 -top-4 w-32 h-32 bg-white/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700" />
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <PlusCircle className="w-5 h-5" />
+                Program Unggulan
+              </h3>
+              <div className="space-y-4">
+                {programHighlights.map((item) => (
+                  <div key={item.title} className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 hover:bg-white/20 transition-colors">
+                    <h4 className="font-bold text-emerald-300 mb-1">{item.title}</h4>
+                    <p className="text-xs text-emerald-50/70 leading-relaxed font-medium">{item.description}</p>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          )}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </main>

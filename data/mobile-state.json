@@ -1,0 +1,148 @@
+{
+  "user": {
+    "id": "member-001",
+    "name": "Falza Yahya",
+    "phone": "085712345678",
+    "email": "falza@ecobank.id",
+    "address": "Jl. Melati Indah No. 12, Banjarbaru",
+    "bankName": "Bank BRI",
+    "accountNumber": "1234567890",
+    "avatar": "FY"
+  },
+  "summary": {
+    "balance": 135000,
+    "points": 850,
+    "collectedKg": 45,
+    "notificationsUnread": 4
+  },
+  "wasteCatalog": [
+    {
+      "id": "plastik",
+      "label": "Plastik",
+      "pricePerKg": 2000
+    },
+    {
+      "id": "kertas",
+      "label": "Kertas",
+      "pricePerKg": 1800
+    },
+    {
+      "id": "kaleng",
+      "label": "Kaleng",
+      "pricePerKg": 3000
+    },
+    {
+      "id": "botol",
+      "label": "Botol",
+      "pricePerKg": 2200
+    }
+  ],
+  "rewards": [
+    {
+      "id": "reward-1",
+      "title": "Pulsa 10.000",
+      "points": 500,
+      "badge": "Pulsa"
+    },
+    {
+      "id": "reward-2",
+      "title": "Pulsa 20.000",
+      "points": 1000,
+      "badge": "Pulsa"
+    },
+    {
+      "id": "reward-3",
+      "title": "Sembako Paket",
+      "points": 1500,
+      "badge": "Hadiah"
+    },
+    {
+      "id": "reward-4",
+      "title": "Voucher Belanja 25rb",
+      "points": 1200,
+      "badge": "Voucher"
+    }
+  ],
+  "history": [
+    {
+      "id": "trx-1001",
+      "title": "Setor Plastik 5 Kg",
+      "category": "setoran",
+      "date": "2026-05-10T09:30:00.000Z",
+      "amount": 10000,
+      "direction": "credit",
+      "subtitle": "10 Mei 2026 - 09:30",
+      "weightKg": 5
+    },
+    {
+      "id": "trx-1002",
+      "title": "Setor Kertas 3 Kg",
+      "category": "setoran",
+      "date": "2026-05-08T14:20:00.000Z",
+      "amount": 6000,
+      "direction": "credit",
+      "subtitle": "8 Mei 2026 - 14:20",
+      "weightKg": 3
+    },
+    {
+      "id": "trx-1003",
+      "title": "Tukar Poin (Pulsa 10rb)",
+      "category": "reward",
+      "date": "2026-05-05T10:15:00.000Z",
+      "amount": 10000,
+      "direction": "debit",
+      "subtitle": "5 Mei 2026 - 10:15",
+      "weightKg": 0
+    },
+    {
+      "id": "trx-1004",
+      "title": "Setor Kaleng 2 Kg",
+      "category": "setoran",
+      "date": "2026-05-02T16:45:00.000Z",
+      "amount": 6000,
+      "direction": "credit",
+      "subtitle": "2 Mei 2026 - 16:45",
+      "weightKg": 2
+    },
+    {
+      "id": "trx-1005",
+      "title": "Setor Botol 1 Kg",
+      "category": "setoran",
+      "date": "2026-05-01T11:05:00.000Z",
+      "amount": 2000,
+      "direction": "credit",
+      "subtitle": "1 Mei 2026 - 11:05",
+      "weightKg": 1
+    }
+  ],
+  "notifications": [
+    {
+      "id": "notif-1",
+      "title": "Setoran diterima",
+      "message": "Setoran plastik 5 Kg berhasil diterima. Saldo bertambah Rp 10.000.",
+      "date": "2026-05-10T09:35:00.000Z",
+      "read": false
+    },
+    {
+      "id": "notif-2",
+      "title": "Poin bertambah",
+      "message": "Anda mendapatkan 50 poin reward.",
+      "date": "2026-05-10T09:35:00.000Z",
+      "read": false
+    },
+    {
+      "id": "notif-3",
+      "title": "Penarikan diproses",
+      "message": "Penarikan saldo Rp 50.000 sedang diproses admin.",
+      "date": "2026-05-09T15:20:00.000Z",
+      "read": false
+    },
+    {
+      "id": "notif-4",
+      "title": "Tukar poin berhasil",
+      "message": "Anda berhasil menukar 500 poin menjadi pulsa 10.000.",
+      "date": "2026-05-05T10:16:00.000Z",
+      "read": false
+    }
+  ]
+}
