@@ -1,8 +1,9 @@
 import { RowDataPacket } from "mysql2";
 import pool from "./db";
+import { assertMemberVerified, getMemberVerificationStatus } from "./member-verification";
 
 type Direction = "credit" | "debit";
-type HistoryCategory = "semua" | "setoran" | "penarikan" | "reward";
+type HistoryCategory = "all" | "deposit" | "withdraw" | "reward";
 
 type UserProfile = {
   id: string;
@@ -25,13 +26,35 @@ type Summary = {
 type HistoryItem = {
   id: string;
   title: string;
-  category: Exclude<HistoryCategory, "semua">;
+  category: Exclude<HistoryCategory, "all">;
   date: string;
   amount: number;
   direction: Direction;
   subtitle: string;
   weightKg: number;
 };
+
+export function normalizeHistoryCategory(value?: string): HistoryCategory {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (!normalized || normalized === "all" || normalized === "semua") {
+    return "all";
+  }
+
+  if (normalized === "deposit" || normalized === "setoran") {
+    return "deposit";
+  }
+
+  if (normalized === "withdraw" || normalized === "penarikan") {
+    return "withdraw";
+  }
+
+  if (normalized === "reward") {
+    return "reward";
+  }
+
+  return "all";
+}
 
 type NotificationItem = {
   id: string;
@@ -292,7 +315,7 @@ function mapTransactionHistory(row: RowDataPacket): HistoryItem {
   return {
     id: `trx-${row.id}`,
     title: isSetor ? `Setor ${row.keterangan}` : `Penarikan ${row.keterangan || "Saldo"}`,
-    category: isSetor ? "setoran" : "penarikan",
+    category: isSetor ? "deposit" : "withdraw",
     date: date.toISOString(),
     amount: Number(row.jumlah ?? 0),
     direction: isSetor ? "credit" : "debit",
@@ -315,11 +338,11 @@ function mapRewardHistory(row: RowDataPacket): HistoryItem {
   };
 }
 
-async function getHistoryItems(memberId: string, filter: HistoryCategory = "semua") {
+async function getHistoryItems(memberId: string, filter: HistoryCategory = "all") {
   await ensureMobileTables();
 
   const items: HistoryItem[] = [];
-  if (filter === "semua" || filter === "setoran" || filter === "penarikan") {
+  if (filter === "all" || filter === "deposit" || filter === "withdraw") {
     const [rows] = await pool.query<RowDataPacket[]>(
       `
         SELECT id, tipe, jumlah, keterangan, status, created_at, berat
@@ -332,11 +355,11 @@ async function getHistoryItems(memberId: string, filter: HistoryCategory = "semu
     items.push(
       ...rows
         .map(mapTransactionHistory)
-        .filter((item) => filter === "semua" || item.category === filter)
+        .filter((item) => filter === "all" || item.category === filter)
     );
   }
 
-  if (filter === "semua" || filter === "reward") {
+  if (filter === "all" || filter === "reward") {
     const [rewardRows] = await pool.query<RowDataPacket[]>(
       `
         SELECT id, title, points, created_at
@@ -363,7 +386,7 @@ async function addNotification(memberId: string, title: string, message: string)
 }
 
 export async function getMobileBootstrap(memberId: string) {
-  const [member, meta, summary, wasteCatalog, rewards, latestHistory, notificationsPreview] = await Promise.all([
+  const [member, meta, summary, wasteCatalog, rewards, latestHistory, notificationsPreview, verification] = await Promise.all([
     getMemberRow(memberId),
     getMemberMeta(memberId),
     getSummary(memberId),
@@ -371,6 +394,7 @@ export async function getMobileBootstrap(memberId: string) {
     getRewards(),
     getHistoryItems(memberId),
     getMobileNotifications(memberId),
+    getMemberVerificationStatus(Number(memberId)),
   ]);
 
   return {
@@ -384,6 +408,13 @@ export async function getMobileBootstrap(memberId: string) {
       accountNumber: meta.accountNumber,
       avatar: avatarFromName(member.nama),
     },
+    verification: verification?.verification ?? {
+      status: "pending",
+      code: "",
+      qrPayload: null,
+      verifiedAt: null,
+      verifiedBy: null,
+    },
     summary,
     wasteCatalog,
     rewards,
@@ -392,7 +423,7 @@ export async function getMobileBootstrap(memberId: string) {
   };
 }
 
-export async function getMobileHistory(memberId: string, filter: HistoryCategory = "semua") {
+export async function getMobileHistory(memberId: string, filter: HistoryCategory = "all") {
   return { items: await getHistoryItems(memberId, filter) };
 }
 
@@ -427,6 +458,7 @@ export async function markNotificationsRead(memberId: string) {
 
 export async function submitDeposit(memberId: string, payload: { wasteTypeId: string; weightKg: number }) {
   await ensureMobileTables();
+  await assertMemberVerified(Number(memberId));
   if (!Number.isFinite(payload.weightKg) || payload.weightKg <= 0) {
     throw new Error("Berat setoran harus lebih dari 0");
   }
@@ -476,6 +508,7 @@ export async function submitDeposit(memberId: string, payload: { wasteTypeId: st
 
 export async function redeemReward(memberId: string, payload: { rewardId: string }) {
   await ensureMobileTables();
+  await assertMemberVerified(Number(memberId));
   const [rewardRows] = await pool.query<RowDataPacket[]>(
     "SELECT id, title, points FROM mobile_rewards WHERE id = ? LIMIT 1",
     [payload.rewardId]
@@ -511,6 +544,7 @@ export async function redeemReward(memberId: string, payload: { rewardId: string
 
 export async function requestWithdrawal(memberId: string, payload: { amount: number; method: string; accountNumber: string }) {
   await ensureMobileTables();
+  await assertMemberVerified(Number(memberId));
   if (!Number.isFinite(payload.amount) || payload.amount < 10000) {
     throw new Error("Minimal penarikan Rp 10.000");
   }

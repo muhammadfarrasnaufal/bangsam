@@ -1,5 +1,6 @@
 import { ResultSetHeader, RowDataPacket } from "mysql2";
 import pool from "./db";
+import { hashPassword } from "./password";
 
 export type ApiUser = {
   id: number;
@@ -312,12 +313,13 @@ export async function createMember(input: {
   noHp?: string;
 }) {
   await ensureWebDataSchema();
+  const hashedPassword = await hashPassword(input.password.trim());
   const [result] = await pool.query<ResultSetHeader>(
     `
       INSERT INTO users (nama, email, password, role, alamat, no_hp)
       VALUES (?, ?, ?, 'nasabah', ?, ?)
     `,
-    [input.nama.trim(), input.email.trim().toLowerCase(), input.password, input.alamat?.trim() || null, input.noHp?.trim() || null]
+    [input.nama.trim(), input.email.trim().toLowerCase(), hashedPassword, input.alamat?.trim() || null, input.noHp?.trim() || null]
   );
 
   await pool.query(
@@ -338,6 +340,8 @@ export async function updateMember(
     throw new Error("Anggota tidak ditemukan");
   }
 
+  const hashedPassword = input.password?.trim() ? await hashPassword(input.password.trim()) : null;
+
   await pool.query(
     `
       UPDATE users
@@ -347,7 +351,7 @@ export async function updateMember(
     [
       input.nama?.trim() || current.nama,
       input.email?.trim().toLowerCase() || current.email,
-      input.password?.trim() || null,
+      hashedPassword,
       input.alamat?.trim() ?? current.alamat,
       input.noHp?.trim() ?? current.noHp,
       memberId,
@@ -365,6 +369,134 @@ export async function deleteMember(memberId: number) {
   }
 
   await pool.query("DELETE FROM users WHERE id = ? AND role = 'nasabah'", [memberId]);
+  return { success: true };
+}
+
+export async function listStaff(filters?: { q?: string; page?: number; limit?: number }) {
+  await ensureWebDataSchema();
+  const { page, limit, offset } = normalizePagination(filters);
+  const conditions = ["u.role = 'petugas'"];
+  const params: Array<string | number> = [];
+
+  if (filters?.q?.trim()) {
+    const keyword = `%${filters.q.trim()}%`;
+    conditions.push("(u.nama LIKE ? OR u.email LIKE ? OR u.no_hp LIKE ?)");
+    params.push(keyword, keyword, keyword);
+  }
+
+  const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+  const [countRows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS count FROM users u ${whereClause}`,
+    params
+  );
+  const [rows] = await pool.query<UserRow[]>(
+    `
+      SELECT
+        u.id,
+        u.nama,
+        u.email,
+        u.role,
+        u.alamat,
+        u.no_hp,
+        u.created_at,
+        0 AS saldo,
+        0 AS total_setoran_kg,
+        0 AS total_setoran_rp
+      FROM users u
+      ${whereClause}
+      ORDER BY u.created_at DESC
+      LIMIT ? OFFSET ?
+    `,
+    [...params, limit, offset]
+  );
+
+  return buildPaginatedResult(rows.map(mapUser), page, limit, Number(countRows[0]?.count ?? 0));
+}
+
+export async function getStaffById(staffId: number) {
+  const [rows] = await pool.query<UserRow[]>(
+    `
+      SELECT
+        u.id,
+        u.nama,
+        u.email,
+        u.role,
+        u.alamat,
+        u.no_hp,
+        u.created_at,
+        0 AS saldo,
+        0 AS total_setoran_kg,
+        0 AS total_setoran_rp
+      FROM users u
+      WHERE u.id = ? AND u.role = 'petugas'
+      LIMIT 1
+    `,
+    [staffId]
+  );
+
+  return rows[0] ? mapUser(rows[0]) : null;
+}
+
+export async function createStaff(input: {
+  nama: string;
+  email: string;
+  password: string;
+  alamat?: string;
+  noHp?: string;
+}) {
+  await ensureWebDataSchema();
+  const hashedPassword = await hashPassword(input.password.trim());
+  const [result] = await pool.query<ResultSetHeader>(
+    `
+      INSERT INTO users (nama, email, password, role, alamat, no_hp)
+      VALUES (?, ?, ?, 'petugas', ?, ?)
+    `,
+    [input.nama.trim(), input.email.trim().toLowerCase(), hashedPassword, input.alamat?.trim() || null, input.noHp?.trim() || null]
+  );
+
+  return getStaffById(result.insertId);
+}
+
+export async function updateStaff(
+  staffId: number,
+  input: { nama?: string; email?: string; password?: string; alamat?: string; noHp?: string }
+) {
+  await ensureWebDataSchema();
+  const current = await getStaffById(staffId);
+  if (!current) {
+    throw new Error("Petugas tidak ditemukan");
+  }
+
+  const hashedPassword = input.password?.trim() ? await hashPassword(input.password.trim()) : null;
+
+  await pool.query(
+    `
+      UPDATE users
+      SET nama = ?, email = ?, password = COALESCE(?, password), alamat = ?, no_hp = ?
+      WHERE id = ? AND role = 'petugas'
+    `,
+    [
+      input.nama?.trim() || current.nama,
+      input.email?.trim().toLowerCase() || current.email,
+      hashedPassword,
+      input.alamat?.trim() ?? current.alamat,
+      input.noHp?.trim() ?? current.noHp,
+      staffId,
+    ]
+  );
+
+  return getStaffById(staffId);
+}
+
+export async function deleteStaff(staffId: number) {
+  await ensureWebDataSchema();
+  const staff = await getStaffById(staffId);
+  if (!staff) {
+    throw new Error("Petugas tidak ditemukan");
+  }
+
+  await pool.query("DELETE FROM users WHERE id = ? AND role = 'petugas'", [staffId]);
   return { success: true };
 }
 

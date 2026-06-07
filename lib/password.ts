@@ -1,5 +1,9 @@
 import bcrypt from "bcryptjs";
 
+export async function hashPassword(plainText: string) {
+  return bcrypt.hash(plainText, 10);
+}
+
 export async function verifyPassword(plainText: string, storedPassword: string) {
   if (plainText === storedPassword) {
     return true;

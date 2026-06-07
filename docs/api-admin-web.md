@@ -239,6 +239,88 @@ Response:
 }
 ```
 
+## Petugas
+
+### `GET /api/staff?q=&page=&limit=`
+
+Hanya `admin`.
+
+Response item:
+
+```json
+{
+  "id": 5,
+  "nama": "Petugas Bangsam",
+  "email": "petugas@bangsam.local",
+  "role": "petugas",
+  "alamat": "Jl. Operasional",
+  "noHp": "081200000002",
+  "saldo": 0,
+  "totalSetoranKg": 0,
+  "totalSetoranRp": 0,
+  "createdAt": "2026-06-06T22:25:35.000Z"
+}
+```
+
+### `POST /api/staff`
+
+Hanya `admin`.
+
+Request:
+
+```json
+{
+  "nama": "Petugas Baru",
+  "email": "petugasbaru@bangsam.local",
+  "password": "petugas123",
+  "alamat": "Jl. Operasional",
+  "noHp": "081234567890"
+}
+```
+
+Response:
+
+```json
+{
+  "item": {
+    "id": 5,
+    "nama": "Petugas Baru",
+    "email": "petugasbaru@bangsam.local",
+    "role": "petugas",
+    "alamat": "Jl. Operasional",
+    "noHp": "081234567890",
+    "saldo": 0,
+    "totalSetoranKg": 0,
+    "totalSetoranRp": 0,
+    "createdAt": "2026-06-07T03:00:00.000Z"
+  }
+}
+```
+
+### `GET /api/staff/[id]`
+
+Hanya `admin`.
+
+### `PATCH /api/staff/[id]`
+
+Hanya `admin`.
+
+Semua field optional:
+
+```json
+{
+  "nama": "Petugas Update",
+  "email": "petugasupdate@bangsam.local",
+  "password": "passwordBaru",
+  "alamat": "Alamat Baru",
+  "noHp": "081299999999"
+}
+```
+
+### `DELETE /api/staff/[id]`
+
+Hanya `admin`.
+
 ## Jenis Sampah
 
 ### `GET /api/waste-types?q=&page=&limit=`
@@ -512,5 +594,294 @@ Unauthorized:
 ```json
 {
   "message": "Unauthorized"
+}
+```
+
+## Mobile Petugas
+
+### `POST /api/mobile/register`
+
+Dipakai nasabah untuk daftar sendiri dari aplikasi.
+
+Request:
+
+```json
+{
+  "nama": "Nasabah Baru",
+  "email": "nasabahbaru@bangsam.local",
+  "password": "nasabah123",
+  "noHp": "081234567890",
+  "alamat": "Jl. Nasabah"
+}
+```
+
+Response:
+
+```json
+{
+  "token": "mb-...",
+  "message": "Registrasi berhasil. Silakan verifikasi akun ke petugas dengan kode atau QR Anda.",
+  "user": {},
+  "verification": {
+    "status": "pending",
+    "code": "BSM123456",
+    "qrPayload": "bangsam://verify-member?code=BSM123456",
+    "verifiedAt": null,
+    "verifiedBy": null
+  }
+}
+```
+
+Catatan:
+
+- nasabah bisa login meski belum diverifikasi
+- fitur transaksi mobile nasabah akan ditahan sampai status `verified`
+
+### `POST /api/mobile/staff/login`
+
+Dipakai untuk login aplikasi petugas, terpisah dari `POST /api/mobile/login` yang tetap khusus `nasabah`.
+
+Request:
+
+```json
+{
+  "identifier": "petugasbaru@bangsam.local",
+  "password": "petugas123"
+}
+```
+
+Response:
+
+```json
+{
+  "token": "mb-staff-...",
+  "user": {
+    "id": 5,
+    "nama": "Petugas Baru",
+    "email": "petugasbaru@bangsam.local",
+    "noHp": "081234567890",
+    "role": "petugas"
+  }
+}
+```
+
+### `GET /api/mobile/staff/bootstrap`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+Response:
+
+```json
+{
+  "user": {
+    "id": "5",
+    "nama": "Petugas Baru",
+    "email": "petugasbaru@bangsam.local",
+    "noHp": "081234567890",
+    "role": "petugas",
+    "alamat": "Jl. Operasional"
+  },
+  "dashboard": {
+    "queues": {
+      "pendingDeposits": 1,
+      "pendingWithdrawals": 1,
+      "totalMembers": 3,
+      "totalWasteTypes": 3
+    },
+    "performance": {
+      "handledDepositsToday": 2,
+      "handledWithdrawalsToday": 1,
+      "totalHandledDeposits": 10,
+      "totalHandledWithdrawals": 4
+    }
+  },
+  "spotlight": {
+    "recentDeposits": [],
+    "recentWithdrawals": [],
+    "recentTransactions": []
+  },
+  "myRecentActivity": []
+}
+```
+
+### `GET /api/mobile/staff/deposits?status=&q=&userId=&page=&limit=`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+### `PATCH /api/mobile/staff/deposits`
+
+Request:
+
+```json
+{
+  "depositId": 1,
+  "status": "verified"
+}
+```
+
+Status valid:
+
+- `pending`
+- `verified`
+- `rejected`
+
+### `GET /api/mobile/staff/withdrawals?status=&q=&userId=&page=&limit=`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+### `PATCH /api/mobile/staff/withdrawals`
+
+Request:
+
+```json
+{
+  "withdrawalId": 1,
+  "status": "success"
+}
+```
+
+Status valid:
+
+- `pending`
+- `success`
+- `failed`
+
+### `GET /api/mobile/staff/transactions?tipe=&status=&q=&userId=&page=&limit=`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+### `GET /api/mobile/staff/members?status=&q=&page=&limit=`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+Contoh pakai:
+
+- `status=pending` untuk antrean verifikasi
+- `q=BSM123456` untuk cari lewat kode
+
+### `POST /api/mobile/staff/members/verify`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+Verifikasi bisa lewat kode manual:
+
+```json
+{
+  "code": "BSM123456"
+}
+```
+
+Atau hasil scan QR:
+
+```json
+{
+  "qrPayload": "bangsam://verify-member?code=BSM123456"
+}
+```
+
+### `GET /api/mobile/staff/member-directory?q=&page=&limit=`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+Dipakai untuk cari semua nasabah, termasuk status verifikasinya.
+
+### `GET /api/mobile/staff/waste-types?q=&page=&limit=`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+Dipakai untuk katalog jenis sampah saat petugas input setoran.
+
+### `POST /api/mobile/staff/deposits`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+Request:
+
+```json
+{
+  "userId": 3,
+  "jenisSampahId": 2,
+  "berat": 4,
+  "status": "verified"
+}
+```
+
+### `POST /api/mobile/staff/withdrawals`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+Request:
+
+```json
+{
+  "userId": 3,
+  "jumlah": 10000,
+  "status": "pending"
+}
+```
+
+### `GET /api/mobile/staff/activity?limit=`
+
+Header:
+
+```txt
+Authorization: Bearer mb-staff-...
+```
+
+Response:
+
+```json
+{
+  "items": [
+    {
+      "id": 10,
+      "entityType": "deposit",
+      "action": "mobile-status-update",
+      "targetName": "Nasabah Bangsam",
+      "description": "Petugas mobile mengubah status setoran menjadi verified",
+      "status": "verified",
+      "createdAt": "2026-06-07T04:15:00.000Z"
+    }
+  ]
 }
 ```

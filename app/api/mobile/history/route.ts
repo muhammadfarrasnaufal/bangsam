@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireMobileSession } from "../../../../lib/mobile-auth";
-import { getMobileHistory } from "../../../../lib/mobile-data";
+import { getMobileHistory, normalizeHistoryCategory } from "../../../../lib/mobile-data";
 
 export async function GET(request: NextRequest) {
   const memberId = await requireMobileSession(request);
@@ -8,11 +8,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
   }
 
-  const filter = (request.nextUrl.searchParams.get("filter") ?? "semua") as
-    | "semua"
-    | "setoran"
-    | "penarikan"
-    | "reward";
+  const filter = normalizeHistoryCategory(request.nextUrl.searchParams.get("filter") ?? "all");
 
   const data = await getMobileHistory(memberId, filter);
   return NextResponse.json(data);

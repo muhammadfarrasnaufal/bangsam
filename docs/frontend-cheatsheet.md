@@ -138,6 +138,34 @@ Catatan role:
 
 - create/update/delete anggota: `admin only`
 
+## 3b. Petugas
+
+List endpoint:
+
+- `GET /api/staff?q=&page=&limit=`
+
+Detail endpoint:
+
+- `GET /api/staff/[id]`
+
+Mutasi:
+
+- `POST /api/staff`
+- `PATCH /api/staff/[id]`
+- `DELETE /api/staff/[id]`
+
+Field form create/edit:
+
+- `nama`
+- `email`
+- `password`
+- `alamat`
+- `noHp`
+
+Catatan role:
+
+- semua endpoint petugas: `admin only`
+
 ## 4. Jenis Sampah
 
 List endpoint:
@@ -333,6 +361,44 @@ Validasi umum:
   "message": "Pesan error"
 }
 ```
+
+## 9b. Mobile Login Petugas
+
+Endpoint:
+
+- `POST /api/mobile/register`
+- `POST /api/mobile/staff/login`
+- `GET /api/mobile/staff/bootstrap`
+- `GET /api/mobile/staff/activity?limit=`
+- `GET /api/mobile/staff/members?status=&q=&page=&limit=`
+- `GET /api/mobile/staff/member-directory?q=&page=&limit=`
+- `POST /api/mobile/staff/members/verify`
+- `GET /api/mobile/staff/waste-types?q=&page=&limit=`
+- `GET /api/mobile/staff/deposits?status=&q=&userId=&page=&limit=`
+- `POST /api/mobile/staff/deposits`
+- `PATCH /api/mobile/staff/deposits`
+- `GET /api/mobile/staff/withdrawals?status=&q=&userId=&page=&limit=`
+- `POST /api/mobile/staff/withdrawals`
+- `PATCH /api/mobile/staff/withdrawals`
+- `GET /api/mobile/staff/transactions?tipe=&status=&q=&userId=&page=&limit=`
+
+Payload:
+
+- `identifier`
+- `password`
+
+Catatan:
+
+- nasabah register sendiri lewat `POST /api/mobile/register`
+- response register / bootstrap nasabah sekarang membawa object `verification`
+- verifikasi nasabah bisa lewat input `code` atau hasil scan `qrPayload`
+- petugas app sekarang sudah bisa cari nasabah, ambil katalog sampah, lalu input setoran/penarikan langsung
+- route ini khusus `petugas`
+- `POST /api/mobile/login` tetap khusus `nasabah`
+- semua route selain login pakai header `Authorization: Bearer <token>`
+- `bootstrap` sekarang sudah bawa `dashboard`, `spotlight`, dan `myRecentActivity`
+- kategori history mobile nasabah sekarang pakai `deposit`, `withdraw`, `reward`
+- alias lama `setoran`, `penarikan`, `semua` masih diterima backend untuk kompatibilitas
 
 ## 10. Audit Trail Admin
 
