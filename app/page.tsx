@@ -572,6 +572,21 @@ async function fetchJson<T>(input: string, init?: RequestInit) {
   return (await response.json()) as T;
 }
 
+async function fetchWithTimeout(input: string, init?: RequestInit, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 function SectionHeader({
   title,
   description,
@@ -662,7 +677,7 @@ export default function HomePage() {
     setLoginError("");
 
     try {
-      const response = await fetch("/api/login", {
+      const response = await fetchWithTimeout("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -685,7 +700,7 @@ export default function HomePage() {
 
   async function handleLogout() {
     try {
-      await fetch("/api/logout", { method: "POST" });
+      await fetchWithTimeout("/api/logout", { method: "POST" });
     } catch (error) {
       console.error("Logout failed:", error);
     }
@@ -923,10 +938,15 @@ export default function HomePage() {
 
   useEffect(() => {
     let cancelled = false;
+    const fallbackTimer = window.setTimeout(() => {
+      if (!cancelled) {
+        setAuthChecked(true);
+      }
+    }, 4000);
 
     async function runAuthCheck() {
       try {
-        const response = await fetch("/api/auth");
+        const response = await fetchWithTimeout("/api/auth");
         if (!response.ok) {
           if (!cancelled) {
             setAuthenticated(false);
@@ -960,6 +980,7 @@ export default function HomePage() {
 
     return () => {
       cancelled = true;
+      window.clearTimeout(fallbackTimer);
     };
   }, []);
 
