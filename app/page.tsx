@@ -1,25 +1,27 @@
-﻿"use client";
+"use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { 
-  LayoutDashboard, 
-  ArrowLeftRight, 
-  PlusCircle, 
-  Users, 
-  FileText, 
-  LogOut, 
-  RefreshCw, 
-  Download, 
-  Calendar,
-  TrendingUp,
-  Wallet,
-  Scale,
+import {
   Activity,
+  ArrowLeftRight,
+  Calendar,
   ChevronRight,
+  Download,
+  FileText,
+  LayoutDashboard,
+  LogOut,
+  PlusCircle,
+  RefreshCw,
+  Scale,
   ShieldCheck,
-  Zap
+  TrendingUp,
+  Users,
+  Wallet,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+type ViewSection = "Dashboard" | "Transaksi" | "Setoran" | "Anggota" | "Laporan";
 
 type Transaction = {
   id: string;
@@ -60,7 +62,95 @@ type ReportData = {
   demoMode?: boolean;
 };
 
-const navItems = ["Dashboard", "Transaksi", "Setoran", "Anggota", "Laporan"];
+type ApiTransaction = {
+  id: number;
+  nasabahId: number | null;
+  nasabahNama: string;
+  tipe: string;
+  jumlah: number;
+  keterangan: string | null;
+  status: string;
+  createdAt: string;
+  berat: number | null;
+};
+
+type ApiDeposit = {
+  id: number;
+  nasabahId: number | null;
+  nasabahNama: string;
+  jenisSampahId: number | null;
+  jenisSampahNama: string;
+  berat: number;
+  total: number;
+  status: string;
+  petugasId: number | null;
+  petugasNama: string | null;
+  createdAt: string;
+};
+
+type ApiWithdrawal = {
+  id: number;
+  nasabahId: number | null;
+  nasabahNama: string;
+  jumlah: number;
+  status: string;
+  createdAt: string;
+};
+
+type ApiMember = {
+  id: number;
+  nama: string;
+  email: string;
+  role: string;
+  alamat: string | null;
+  noHp: string | null;
+  saldo: number;
+  totalSetoranKg: number;
+  totalSetoranRp: number;
+  createdAt: string;
+};
+
+type PaginatedResult<T> = {
+  items: T[];
+  meta: {
+    page: number;
+    limit: number;
+    totalItems: number;
+    totalPages: number;
+  };
+};
+
+type SessionUser = {
+  id: number;
+  nama: string;
+  email: string;
+  role: string;
+};
+
+type RolePermissions = {
+  role: string;
+  canViewDashboard: boolean;
+  canViewReports: boolean;
+  canViewAnalytics: boolean;
+  canViewTransactions: boolean;
+  canViewMembers: boolean;
+  canManageMembers: boolean;
+  canViewWasteTypes: boolean;
+  canManageWasteTypes: boolean;
+  canCreateDeposits: boolean;
+  canApproveDeposits: boolean;
+  canDeleteDeposits: boolean;
+  canBulkApproveDeposits: boolean;
+  canCreateWithdrawals: boolean;
+  canApproveWithdrawals: boolean;
+  canDeleteWithdrawals: boolean;
+  canBulkApproveWithdrawals: boolean;
+  canViewAuditLog: boolean;
+  canViewAlerts: boolean;
+  canViewSummary: boolean;
+};
+
+const navItems: ViewSection[] = ["Dashboard", "Transaksi", "Setoran", "Anggota", "Laporan"];
 
 const programHighlights = [
   { title: "Edukasi Sampah", description: "Mengajak anggota memilah dan menabung sampah dengan lebih baik." },
@@ -88,6 +178,49 @@ function formatKg(value: number) {
 
 function formatDateInput(value: Date) {
   return value.toISOString().slice(0, 10);
+}
+
+function getInitialReportRange() {
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - 7);
+  return {
+    start: formatDateInput(start),
+    end: formatDateInput(now),
+  };
+}
+
+function formatStatusBadge(status: string) {
+  const normalized = status.toLowerCase();
+
+  if (["berhasil", "success", "verified", "selesai"].includes(normalized)) {
+    return "bg-emerald-50 text-emerald-600 border-emerald-100";
+  }
+
+  if (["pending", "menunggu"].includes(normalized)) {
+    return "bg-amber-50 text-amber-600 border-amber-100";
+  }
+
+  if (["failed", "gagal", "rejected", "ditolak"].includes(normalized)) {
+    return "bg-rose-50 text-rose-600 border-rose-100";
+  }
+
+  return "bg-slate-100 text-slate-600 border-slate-200";
+}
+
+function formatTransactionType(type: string) {
+  const normalized = type.toLowerCase();
+  if (normalized === "setor") {
+    return "Setoran";
+  }
+  if (normalized === "tarik") {
+    return "Penarikan";
+  }
+  return type;
+}
+
+function formatTransactionAmount(item: ApiTransaction) {
+  return item.tipe === "setor" ? formatKg(Number(item.berat ?? 0)) : formatRp(Number(item.jumlah ?? 0));
 }
 
 function downloadCSV(report: ReportData | null) {
@@ -144,24 +277,87 @@ async function exportPDF(report: ReportData | null) {
   doc.save(`laporan-bank-sampah-${report.start.slice(0, 10)}-${report.end.slice(0, 10)}.pdf`);
 }
 
+async function fetchJson<T>(input: string, init?: RequestInit) {
+  const response = await fetch(input, init);
+  if (!response.ok) {
+    let message = "Request gagal";
+    try {
+      const data = await response.json();
+      message = data.message ?? message;
+    } catch {
+      message = response.statusText || message;
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as T;
+}
+
+function SectionHeader({
+  title,
+  description,
+  actions,
+}: {
+  title: string;
+  description: string;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div>
+        <h2 className="text-2xl font-black text-slate-900">{title}</h2>
+        <p className="mt-1 text-sm font-medium text-slate-500">{description}</p>
+      </div>
+      {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+function InfoCard({ title, value, hint }: { title: string; value: string; hint: string }) {
+  return (
+    <div className="rounded-[2rem] border border-slate-100 bg-white p-6 shadow-sm">
+      <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{title}</p>
+      <p className="mt-3 text-2xl font-black text-slate-900">{value}</p>
+      <p className="mt-2 text-sm font-medium text-slate-500">{hint}</p>
+    </div>
+  );
+}
+
 export default function HomePage() {
+  const initialReportRange = useMemo(() => getInitialReportRange(), []);
   const [authenticated, setAuthenticated] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [currentView, setCurrentView] = useState<ViewSection>("Dashboard");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [backendReady, setBackendReady] = useState(false);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [permissions, setPermissions] = useState<RolePermissions | null>(null);
   const [stats, setStats] = useState<Stats>(initialStats);
   const [recentTransactions, setRecentTransactions] = useState<Transaction[]>(initialTransactions);
   const [activeUsers, setActiveUsers] = useState<string[]>([]);
   const [features, setFeatures] = useState<string[]>(initialFeatures);
   const [lastUpdated, setLastUpdated] = useState("");
-  const [reportStart, setReportStart] = useState(formatDateInput(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)));
-  const [reportEnd, setReportEnd] = useState(formatDateInput(new Date()));
+  const [reportStart, setReportStart] = useState(initialReportRange.start);
+  const [reportEnd, setReportEnd] = useState(initialReportRange.end);
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
-  const initialReportRangeRef = useRef({ start: reportStart, end: reportEnd });
+  const [sectionLoading, setSectionLoading] = useState(false);
+  const [sectionError, setSectionError] = useState("");
+  const [transactionQuery, setTransactionQuery] = useState("");
+  const [transactionData, setTransactionData] = useState<PaginatedResult<ApiTransaction> | null>(null);
+  const [selectedTransaction, setSelectedTransaction] = useState<ApiTransaction | null>(null);
+  const [depositData, setDepositData] = useState<PaginatedResult<ApiDeposit> | null>(null);
+  const [withdrawalData, setWithdrawalData] = useState<PaginatedResult<ApiWithdrawal> | null>(null);
+  const [memberData, setMemberData] = useState<PaginatedResult<ApiMember> | null>(null);
+  const initialReportRangeRef = useRef(initialReportRange);
+
+  async function loadPermissions() {
+    const data = await fetchJson<{ user: SessionUser; permissions: RolePermissions }>("/api/me/permissions");
+    setSessionUser(data.user);
+    setPermissions(data.permissions);
+  }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -181,8 +377,7 @@ export default function HomePage() {
       }
 
       setAuthenticated(true);
-      await refreshDashboard();
-      await loadReport(reportStart, reportEnd);
+      await Promise.all([refreshDashboard(), loadReport(reportStart, reportEnd), loadPermissions()]);
     } catch (error) {
       console.error("Login failed:", error);
       setLoginError("Tidak dapat masuk, coba lagi.");
@@ -199,16 +394,15 @@ export default function HomePage() {
 
     setAuthenticated(false);
     setBackendReady(false);
+    setSessionUser(null);
+    setPermissions(null);
+    setCurrentView("Dashboard");
   }
 
   async function refreshDashboard() {
     setLoading(true);
     try {
-      const response = await fetch("/api/dashboard");
-      if (!response.ok) {
-        throw new Error("Gagal memuat dashboard");
-      }
-      const data: DashboardData = await response.json();
+      const data = await fetchJson<DashboardData>("/api/dashboard");
       setStats(data.stats);
       setRecentTransactions(data.recentTransactions);
       setActiveUsers(data.activeUsers);
@@ -226,13 +420,9 @@ export default function HomePage() {
   async function loadReport(start: string, end: string) {
     setReportLoading(true);
     try {
-      const response = await fetch(
+      const data = await fetchJson<ReportData>(
         `/api/reports?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
       );
-      if (!response.ok) {
-        throw new Error("Gagal memuat laporan");
-      }
-      const data: ReportData = await response.json();
       setReportData(data);
       setBackendReady(!data.demoMode);
     } catch (error) {
@@ -241,6 +431,80 @@ export default function HomePage() {
       setBackendReady(false);
     } finally {
       setReportLoading(false);
+    }
+  }
+
+  async function loadTransactions(query = transactionQuery) {
+    setSectionLoading(true);
+    setSectionError("");
+    try {
+      const data = await fetchJson<PaginatedResult<ApiTransaction>>(
+        `/api/transactions?q=${encodeURIComponent(query)}&page=1&limit=12`
+      );
+      setTransactionData(data);
+      setSelectedTransaction((current) => current ?? data.items[0] ?? null);
+    } catch (error) {
+      setSectionError(error instanceof Error ? error.message : "Gagal memuat transaksi");
+      setTransactionData(null);
+      setSelectedTransaction(null);
+    } finally {
+      setSectionLoading(false);
+    }
+  }
+
+  async function loadOperationalData() {
+    setSectionLoading(true);
+    setSectionError("");
+    try {
+      const [deposits, withdrawals] = await Promise.all([
+        fetchJson<PaginatedResult<ApiDeposit>>("/api/deposits?page=1&limit=8"),
+        fetchJson<PaginatedResult<ApiWithdrawal>>("/api/withdrawals?page=1&limit=8"),
+      ]);
+      setDepositData(deposits);
+      setWithdrawalData(withdrawals);
+    } catch (error) {
+      setSectionError(error instanceof Error ? error.message : "Gagal memuat operasional");
+      setDepositData(null);
+      setWithdrawalData(null);
+    } finally {
+      setSectionLoading(false);
+    }
+  }
+
+  async function loadMembers() {
+    setSectionLoading(true);
+    setSectionError("");
+    try {
+      const data = await fetchJson<PaginatedResult<ApiMember>>("/api/members?page=1&limit=10");
+      setMemberData(data);
+    } catch (error) {
+      setSectionError(error instanceof Error ? error.message : "Gagal memuat anggota");
+      setMemberData(null);
+    } finally {
+      setSectionLoading(false);
+    }
+  }
+
+  function openView(view: ViewSection) {
+    setCurrentView(view);
+
+    if (view === "Transaksi") {
+      void loadTransactions();
+      return;
+    }
+
+    if (view === "Setoran") {
+      void loadOperationalData();
+      return;
+    }
+
+    if (view === "Anggota") {
+      void loadMembers();
+      return;
+    }
+
+    if (view === "Laporan") {
+      void loadReport(reportStart, reportEnd);
     }
   }
 
@@ -265,8 +529,7 @@ export default function HomePage() {
         setAuthenticated(data.authenticated);
         if (data.authenticated) {
           const { start, end } = initialReportRangeRef.current;
-          await refreshDashboard();
-          await loadReport(start, end);
+          await Promise.all([refreshDashboard(), loadReport(start, end), loadPermissions()]);
         }
       } catch (error) {
         console.error("Auth check failed:", error);
@@ -297,9 +560,9 @@ export default function HomePage() {
   }, [authenticated, reportEnd, reportStart]);
 
   useEffect(() => {
-    if (!authenticated) return;
-    loadReport(reportStart, reportEnd);
-  }, [authenticated, reportStart, reportEnd]);
+    if (!authenticated || currentView !== "Laporan") return;
+    void loadReport(reportStart, reportEnd);
+  }, [authenticated, currentView, reportStart, reportEnd]);
 
   const cards = useMemo(
     () => [
@@ -334,70 +597,73 @@ export default function HomePage() {
 
   if (!authenticated) {
     return (
-      <main className="min-h-screen flex items-center justify-center p-4 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100 via-slate-50 to-white">
-        <div className="w-full max-w-md bg-white rounded-[2.5rem] p-8 shadow-2xl shadow-blue-200/50 border border-blue-50">
-          <div className="flex flex-col items-center mb-8">
-            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-4">
-              <Zap className="w-8 h-8 text-primary" />
+      <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-100 via-slate-50 to-white p-4">
+        <div className="w-full max-w-md rounded-[2.5rem] border border-blue-50 bg-white p-8 shadow-2xl shadow-blue-200/50">
+          <div className="mb-8 flex flex-col items-center">
+            <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+              <Zap className="h-8 w-8 text-primary" />
             </div>
             <h2 className="text-2xl font-bold text-slate-900">Admin Bank Sampah</h2>
-            <p className="text-slate-500 mt-2 text-center text-sm">Masuk untuk mengelola ekosistem bank sampah Anda</p>
+            <p className="mt-2 text-center text-sm text-slate-500">Masuk untuk mengelola ekosistem bank sampah Anda</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
-              <label htmlFor="username" className="text-sm font-semibold text-slate-700 ml-1">Nama Pengguna</label>
+              <label htmlFor="username" className="ml-1 text-sm font-semibold text-slate-700">
+                Nama Pengguna
+              </label>
               <div className="relative">
                 <input
                   id="username"
-                  className="w-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-primary outline-none transition-all pl-11"
-                  placeholder="admin"
+                  className="w-full rounded-2xl bg-slate-50 px-4 py-3 pl-11 outline-none ring-1 ring-slate-200 transition-all focus:ring-2 focus:ring-primary"
+                  placeholder="admin@bangsam.local"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
                   required
                 />
-                <Users className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                <Users className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-semibold text-slate-700 ml-1">Kata Sandi</label>
+              <label htmlFor="password" className="ml-1 text-sm font-semibold text-slate-700">
+                Kata Sandi
+              </label>
               <div className="relative">
                 <input
                   id="password"
                   type="password"
-                  className="w-full bg-slate-50 border-0 ring-1 ring-slate-200 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-primary outline-none transition-all pl-11"
+                  className="w-full rounded-2xl bg-slate-50 px-4 py-3 pl-11 outline-none ring-1 ring-slate-200 transition-all focus:ring-2 focus:ring-primary"
                   placeholder="••••••••"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   required
                 />
-                <ShieldCheck className="w-5 h-5 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+                <ShieldCheck className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
               </div>
             </div>
 
-            {loginError && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-xl text-xs font-medium flex items-center gap-2">
-                <div className="w-1 h-1 bg-red-600 rounded-full" />
+            {loginError ? (
+              <div className="flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs font-medium text-red-600">
+                <div className="h-1 w-1 rounded-full bg-red-600" />
                 {loginError}
               </div>
-            )}
+            ) : null}
 
-            <button type="submit" className="w-full bg-primary hover:bg-primary/90 text-white font-bold py-4 rounded-2xl shadow-lg shadow-primary/20 transition-all flex items-center justify-center gap-2 group">
+            <button
+              type="submit"
+              className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-4 font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90"
+            >
               Masuk Sekarang
-              <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <ChevronRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />
             </button>
           </form>
-
-          <div className="mt-8 pt-6 border-t border-slate-100 flex justify-center">
-            <p className="text-xs text-slate-400 font-medium tracking-wide">VERSION 2.0 • BUILT WITH PRIDE</p>
-          </div>
         </div>
       </main>
     );
   }
 
-  const navItemIcons: Record<string, any> = {
+  const navItemIcons: Record<ViewSection, React.ComponentType<{ className?: string }>> = {
     Dashboard: LayoutDashboard,
     Transaksi: ArrowLeftRight,
     Setoran: PlusCircle,
@@ -406,250 +672,593 @@ export default function HomePage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50/50 lg:grid lg:grid-cols-[280px_1fr] flex flex-col">
-      {/* Sidebar */}
-      <aside className="lg:sticky lg:top-0 lg:h-screen border-r border-slate-200 bg-white p-6 flex flex-col gap-8">
+    <main className="flex min-h-screen flex-col bg-slate-50/50 lg:grid lg:grid-cols-[280px_1fr]">
+      <aside className="flex flex-col gap-8 border-r border-slate-200 bg-white p-6 lg:sticky lg:top-0 lg:h-screen">
         <div className="flex items-center gap-3 px-2">
-          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-lg shadow-emerald-200">
-            <Zap className="w-6 h-6 text-white" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500 shadow-lg shadow-emerald-200">
+            <Zap className="h-6 w-6 text-white" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-slate-900 leading-none">Bank Sampah</h2>
-            <p className="text-xs font-medium text-slate-500 mt-1 uppercase tracking-wider">Administrator</p>
+            <h2 className="text-lg font-bold leading-none text-slate-900">Bank Sampah</h2>
+            <p className="mt-1 text-xs font-medium uppercase tracking-wider text-slate-500">
+              {sessionUser?.role ?? "administrator"}
+            </p>
           </div>
         </div>
 
         <nav className="flex flex-col gap-1">
           {navItems.map((item) => {
-            const Icon = navItemIcons[item] || LayoutDashboard;
-            const isActive = item === "Dashboard";
+            const Icon = navItemIcons[item];
+            const isActive = item === currentView;
             return (
-              <a
+              <button
                 key={item}
-                href="#"
+                type="button"
+                onClick={() => openView(item)}
                 className={cn(
-                  "flex items-center gap-3 px-4 py-3 rounded-2xl transition-all duration-200 font-medium group",
-                  isActive 
-                    ? "bg-primary text-white shadow-lg shadow-primary/20" 
-                    : "text-slate-600 hover:bg-slate-50 hover:text-primary"
+                  "flex items-center gap-3 rounded-2xl px-4 py-3 text-left font-medium transition-all duration-200 group",
+                  isActive ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-slate-600 hover:bg-slate-50 hover:text-primary"
                 )}
               >
-                <Icon className={cn("w-5 h-5", isActive ? "text-white" : "text-slate-400 group-hover:text-primary")} />
+                <Icon className={cn("h-5 w-5", isActive ? "text-white" : "text-slate-400 group-hover:text-primary")} />
                 {item}
-              </a>
+              </button>
             );
           })}
         </nav>
 
         <div className="mt-auto space-y-4">
-          <div className="bg-slate-50 rounded-3xl p-5 border border-slate-100">
-            <div className="flex items-center gap-2 mb-2">
-              <Activity className="w-4 h-4 text-emerald-500" />
+          <div className="rounded-3xl border border-slate-100 bg-slate-50 p-5">
+            <div className="mb-2 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-emerald-500" />
               <h3 className="text-sm font-bold text-slate-900">Live Status</h3>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="mb-3 flex flex-wrap gap-2">
               {features.map((feature) => (
                 <span
                   key={feature}
-                  className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold text-slate-600 uppercase tracking-tight"
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-tight text-slate-600"
                 >
                   {feature}
                 </span>
               ))}
             </div>
+            <p className="text-xs font-medium text-slate-500">Update terakhir: {lastUpdated || "-"}</p>
           </div>
 
-          <button 
+          <div className="rounded-3xl border border-slate-100 bg-white p-5">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">Hak Akses</p>
+            <div className="mt-3 space-y-2 text-sm font-medium text-slate-600">
+              <p>Kelola anggota: {permissions?.canManageMembers ? "Ya" : "Tidak"}</p>
+              <p>Approve setoran: {permissions?.canApproveDeposits ? "Ya" : "Tidak"}</p>
+              <p>Lihat audit: {permissions?.canViewAuditLog ? "Ya" : "Tidak"}</p>
+            </div>
+          </div>
+
+          <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-red-50 text-red-600 font-bold text-sm hover:bg-red-100 transition-colors"
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600 transition-colors hover:bg-red-100"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="h-4 w-4" />
             Keluar Panel
           </button>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <section className="p-4 lg:p-10 flex flex-col gap-8 max-w-7xl mx-auto w-full">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <section className="mx-auto flex w-full max-w-7xl flex-col gap-8 p-4 lg:p-10">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Selamat Datang, Admin!</h1>
-            <p className="text-slate-500 font-medium mt-1">Pantau perkembangan ekosistem bank sampah Anda hari ini.</p>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900">
+              {currentView === "Dashboard" ? "Selamat Datang" : currentView}
+            </h1>
+            <p className="mt-1 font-medium text-slate-500">
+              {sessionUser ? `${sessionUser.nama} • ${sessionUser.role}` : "Pantau operasional bank sampah Anda."}
+            </p>
           </div>
           <div className="flex items-center gap-3">
-            <div className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold uppercase tracking-widest border",
-              backendReady 
-                ? "bg-emerald-50 text-emerald-600 border-emerald-100" 
-                : "bg-amber-50 text-amber-600 border-amber-100"
-            )}>
-              <div className={cn("w-2 h-2 rounded-full animate-pulse", backendReady ? "bg-emerald-500" : "bg-amber-500")} />
+            <div
+              className={cn(
+                "flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-widest",
+                backendReady ? "border-emerald-100 bg-emerald-50 text-emerald-600" : "border-amber-100 bg-amber-50 text-amber-600"
+              )}
+            >
+              <div className={cn("h-2 w-2 animate-pulse rounded-full", backendReady ? "bg-emerald-500" : "bg-amber-500")} />
               {backendReady ? "Connected" : "Demo Mode"}
             </div>
-            <button 
+            <button
               onClick={refreshDashboard}
               disabled={loading}
-              className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50"
+              className="rounded-xl border border-slate-200 bg-white p-2 transition-colors hover:bg-slate-50 disabled:opacity-50"
             >
-              <RefreshCw className={cn("w-5 h-5 text-slate-600", loading && "animate-spin")} />
+              <RefreshCw className={cn("h-5 w-5 text-slate-600", loading && "animate-spin")} />
             </button>
           </div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {cards.map((stat, idx) => {
-            const icons = [Scale, Wallet, Users, ArrowLeftRight, Activity];
-            const colors = ["text-blue-600", "text-emerald-600", "text-purple-600", "text-orange-600", "text-pink-600"];
-            const bgColors = ["bg-blue-50", "bg-emerald-50", "bg-purple-50", "bg-orange-50", "bg-pink-50"];
-            const Icon = icons[idx] || Activity;
-            
-            return (
-              <div key={stat.title} className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-shadow group">
-                <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110", bgColors[idx % bgColors.length])}>
-                  <Icon className={cn("w-6 h-6", colors[idx % colors.length])} />
-                </div>
-                <p className="text-slate-500 text-sm font-bold uppercase tracking-wider">{stat.title}</p>
-                <p className="text-2xl font-black text-slate-900 mt-1">{stat.value}</p>
-              </div>
-            );
-          })}
-        </div>
+        {currentView === "Dashboard" ? (
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {cards.map((stat, idx) => {
+                const icons = [Scale, Wallet, Users, ArrowLeftRight, Activity];
+                const colors = ["text-blue-600", "text-emerald-600", "text-purple-600", "text-orange-600", "text-pink-600"];
+                const bgColors = ["bg-blue-50", "bg-emerald-50", "bg-purple-50", "bg-orange-50", "bg-pink-50"];
+                const Icon = icons[idx] || Activity;
 
-        {/* Reports & Table Section */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-          {/* Main Table */}
-          <div className="xl:col-span-2 space-y-6">
-            <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-              <div className="p-8 border-b border-slate-50 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center">
-                    <TrendingUp className="w-6 h-6 text-indigo-600" />
+                return (
+                  <div key={stat.title} className="group rounded-[2rem] border border-slate-100 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
+                    <div className={cn("mb-4 flex h-12 w-12 items-center justify-center rounded-2xl transition-transform group-hover:scale-110", bgColors[idx % bgColors.length])}>
+                      <Icon className={cn("h-6 w-6", colors[idx % colors.length])} />
+                    </div>
+                    <p className="text-sm font-bold uppercase tracking-wider text-slate-500">{stat.title}</p>
+                    <p className="mt-1 text-2xl font-black text-slate-900">{stat.value}</p>
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-slate-900">Transaksi Terbaru</h2>
-                    <p className="text-sm font-medium text-slate-400">Periode: {reportPeriod}</p>
+                );
+              })}
+            </div>
+
+            <div className="grid grid-cols-1 gap-8 xl:grid-cols-3">
+              <div className="space-y-6 xl:col-span-2">
+                <div className="overflow-hidden rounded-[2.5rem] border border-slate-100 bg-white shadow-sm">
+                  <div className="flex flex-col justify-between gap-4 border-b border-slate-50 p-8 md:flex-row md:items-center">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50">
+                        <TrendingUp className="h-6 w-6 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-slate-900">Transaksi Terbaru</h2>
+                        <p className="text-sm font-medium text-slate-400">Klik transaksi untuk buka panel detail.</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentView("Transaksi")}
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                    >
+                      Buka Semua Transaksi
+                    </button>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => downloadCSV(reportData)} className="flex items-center gap-2 px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-xl text-sm font-bold transition-colors">
-                    <Download className="w-4 h-4" />
-                    CSV
-                  </button>
-                  <button onClick={() => exportPDF(reportData)} className="flex items-center gap-2 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-bold transition-colors">
-                    <FileText className="w-4 h-4" />
-                    PDF
-                  </button>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className="bg-slate-50/50">
+                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Pelanggan</th>
+                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Tipe</th>
+                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Jumlah</th>
+                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {recentTransactions.map((transaction) => (
+                          <tr
+                            key={transaction.id}
+                            className="cursor-pointer transition-colors hover:bg-slate-50/50"
+                            onClick={() => {
+                              setSelectedTransaction({
+                                id: Number(transaction.id),
+                                nasabahId: null,
+                                nasabahNama: transaction.customer,
+                                tipe: transaction.type.toLowerCase().includes("tarik") ? "tarik" : "setor",
+                                jumlah: 0,
+                                keterangan: transaction.type,
+                                status: transaction.status,
+                                createdAt: transaction.createdAt,
+                                berat: null,
+                              });
+                              openView("Transaksi");
+                            }}
+                          >
+                            <td className="px-8 py-5">
+                              <p className="font-bold text-slate-900">{transaction.customer}</p>
+                              <p className="mt-1 text-[10px] font-bold uppercase tracking-tighter text-slate-400">
+                                {new Date(transaction.createdAt).toLocaleString("id-ID")}
+                              </p>
+                            </td>
+                            <td className="px-8 py-5">
+                              <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-blue-600">
+                                {transaction.type}
+                              </span>
+                            </td>
+                            <td className="px-8 py-5 font-black italic text-slate-900">{transaction.amount}</td>
+                            <td className="px-8 py-5">
+                              <span className={cn("rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest", formatStatusBadge(transaction.status))}>
+                                {transaction.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                {reportLoading ? (
-                  <div className="p-12 flex flex-col items-center justify-center text-slate-400 gap-3">
-                    <RefreshCw className="w-8 h-8 animate-spin" />
-                    <p className="font-bold">Memperbarui Data...</p>
+              <div className="flex flex-col gap-8">
+                <div className="rounded-[2.5rem] border border-slate-100 bg-white p-8 shadow-sm">
+                  <h3 className="text-lg font-bold text-slate-900">Ringkasan Akses</h3>
+                  <div className="mt-5 grid grid-cols-1 gap-4">
+                    <InfoCard title="Role Aktif" value={permissions?.role ?? "-"} hint="Role login saat ini" />
+                    <InfoCard title="Data Anggota" value={permissions?.canManageMembers ? "Full Access" : "Read Only"} hint="Sesuai hak akses backend" />
                   </div>
+                </div>
+
+                <div className="group relative overflow-hidden rounded-[2.5rem] bg-emerald-900 p-8 text-white shadow-xl shadow-emerald-900/20">
+                  <div className="absolute -right-4 -top-4 h-32 w-32 rounded-full bg-white/10 blur-3xl transition-transform duration-700 group-hover:scale-150" />
+                  <h3 className="flex items-center gap-2 text-xl font-bold">
+                    <PlusCircle className="h-5 w-5" />
+                    Program Unggulan
+                  </h3>
+                  <div className="mt-6 space-y-4">
+                    {programHighlights.map((item) => (
+                      <div key={item.title} className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-md transition-colors hover:bg-white/20">
+                        <h4 className="mb-1 font-bold text-emerald-300">{item.title}</h4>
+                        <p className="text-xs font-medium leading-relaxed text-emerald-50/70">{item.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {currentView === "Transaksi" ? (
+          <div className="grid grid-cols-1 gap-8 xl:grid-cols-[1.3fr_0.7fr]">
+            <div className="space-y-6">
+              <SectionHeader
+                title="Riwayat Transaksi"
+                description="List transaksi sekarang sudah aktif dan bisa dipilih."
+                actions={
+                  <>
+                    <input
+                      value={transactionQuery}
+                      onChange={(event) => setTransactionQuery(event.target.value)}
+                      placeholder="Cari nama atau keterangan"
+                      className="rounded-2xl border-0 bg-white px-4 py-3 outline-none ring-1 ring-slate-200 focus:ring-2 focus:ring-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => loadTransactions()}
+                      className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                    >
+                      Cari
+                    </button>
+                  </>
+                }
+              />
+
+              <div className="overflow-hidden rounded-[2.5rem] border border-slate-100 bg-white shadow-sm">
+                {sectionLoading ? (
+                  <div className="flex items-center justify-center gap-3 p-10 text-slate-400">
+                    <RefreshCw className="h-5 w-5 animate-spin" />
+                    Memuat transaksi...
+                  </div>
+                ) : sectionError ? (
+                  <div className="p-8 text-sm font-medium text-rose-600">{sectionError}</div>
                 ) : (
-                  <table className="w-full text-left border-collapse">
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className="bg-slate-50/50">
+                          <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Nasabah</th>
+                          <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Tipe</th>
+                          <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Jumlah</th>
+                          <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Status</th>
+                          <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Waktu</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {transactionData?.items.map((item) => (
+                          <tr
+                            key={item.id}
+                            className={cn(
+                              "cursor-pointer transition-colors hover:bg-slate-50",
+                              selectedTransaction?.id === item.id && "bg-blue-50/50"
+                            )}
+                            onClick={() => setSelectedTransaction(item)}
+                          >
+                            <td className="px-6 py-4 font-bold text-slate-900">{item.nasabahNama}</td>
+                            <td className="px-6 py-4">
+                              <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-blue-600">
+                                {formatTransactionType(item.tipe)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 font-bold text-slate-900">{formatTransactionAmount(item)}</td>
+                            <td className="px-6 py-4">
+                              <span className={cn("rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest", formatStatusBadge(item.status))}>
+                                {item.status}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm font-medium text-slate-500">
+                              {new Date(item.createdAt).toLocaleString("id-ID")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[2.5rem] border border-slate-100 bg-white p-8 shadow-sm">
+              <h3 className="text-lg font-bold text-slate-900">Detail Transaksi</h3>
+              {selectedTransaction ? (
+                <div className="mt-6 space-y-4 text-sm font-medium text-slate-600">
+                  <InfoCard title="Nasabah" value={selectedTransaction.nasabahNama} hint={`ID transaksi #${selectedTransaction.id}`} />
+                  <InfoCard title="Tipe" value={formatTransactionType(selectedTransaction.tipe)} hint={selectedTransaction.keterangan || "Tanpa keterangan"} />
+                  <InfoCard title="Nominal" value={formatTransactionAmount(selectedTransaction)} hint={`Status ${selectedTransaction.status}`} />
+                  <InfoCard title="Waktu" value={new Date(selectedTransaction.createdAt).toLocaleDateString("id-ID")} hint={new Date(selectedTransaction.createdAt).toLocaleTimeString("id-ID")} />
+                </div>
+              ) : (
+                <p className="mt-6 text-sm font-medium text-slate-500">Pilih salah satu transaksi untuk melihat detailnya.</p>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {currentView === "Setoran" ? (
+          <div className="space-y-8">
+            <SectionHeader
+              title="Operasional Setoran dan Penarikan"
+              description="Data setoran dan penarikan sekarang bisa dibuka langsung dari web."
+              actions={
+                <button
+                  type="button"
+                  onClick={loadOperationalData}
+                  className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                >
+                  Refresh Operasional
+                </button>
+              }
+            />
+
+            {sectionError ? <div className="rounded-2xl bg-rose-50 p-4 text-sm font-medium text-rose-600">{sectionError}</div> : null}
+
+            <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
+              <div className="overflow-hidden rounded-[2.5rem] border border-slate-100 bg-white shadow-sm">
+                <div className="border-b border-slate-50 p-6">
+                  <h3 className="text-lg font-bold text-slate-900">Setoran Terbaru</h3>
+                  <p className="mt-1 text-sm text-slate-500">Total data: {depositData?.meta.totalItems ?? 0}</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-left">
                     <thead>
                       <tr className="bg-slate-50/50">
-                        <th className="px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Pelanggan</th>
-                        <th className="px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Tipe</th>
-                        <th className="px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Jumlah</th>
-                        <th className="px-8 py-4 text-xs font-bold text-slate-500 uppercase tracking-widest">Status</th>
+                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Nasabah</th>
+                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Jenis</th>
+                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Berat</th>
+                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {reportTransactions.map((transaction) => (
-                        <tr key={transaction.id} className="hover:bg-slate-50/50 transition-colors group">
-                          <td className="px-8 py-5">
-                            <p className="font-bold text-slate-900">{transaction.customer}</p>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tighter mt-1">{new Date(transaction.createdAt).toLocaleString("id-ID")}</p>
+                      {depositData?.items.map((item) => (
+                        <tr key={item.id} className="transition-colors hover:bg-slate-50">
+                          <td className="px-6 py-4 font-bold text-slate-900">{item.nasabahNama}</td>
+                          <td className="px-6 py-4 text-sm font-medium text-slate-600">{item.jenisSampahNama}</td>
+                          <td className="px-6 py-4 font-bold text-slate-900">
+                            {formatKg(item.berat)} / {formatRp(item.total)}
                           </td>
-                          <td className="px-8 py-5">
-                            <span className={cn(
-                              "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
-                              transaction.type.includes("Setoran") ? "bg-blue-50 text-blue-600 border-blue-100" : "bg-purple-50 text-purple-600 border-purple-100"
-                            )}>
-                              {transaction.type}
+                          <td className="px-6 py-4">
+                            <span className={cn("rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest", formatStatusBadge(item.status))}>
+                              {item.status}
                             </span>
-                          </td>
-                          <td className="px-8 py-5">
-                            <p className="font-black text-slate-900 italic">{transaction.amount}</p>
-                          </td>
-                          <td className="px-8 py-5">
-                            <div className="flex items-center gap-2">
-                              <div className={cn("w-1.5 h-1.5 rounded-full", transaction.status === "Selesai" ? "bg-emerald-500" : "bg-amber-500")} />
-                              <p className="text-sm font-bold text-slate-700">{transaction.status}</p>
-                            </div>
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-[2.5rem] border border-slate-100 bg-white shadow-sm">
+                <div className="border-b border-slate-50 p-6">
+                  <h3 className="text-lg font-bold text-slate-900">Penarikan Terbaru</h3>
+                  <p className="mt-1 text-sm text-slate-500">Total data: {withdrawalData?.meta.totalItems ?? 0}</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-left">
+                    <thead>
+                      <tr className="bg-slate-50/50">
+                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Nasabah</th>
+                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Jumlah</th>
+                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Status</th>
+                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Waktu</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {withdrawalData?.items.map((item) => (
+                        <tr key={item.id} className="transition-colors hover:bg-slate-50">
+                          <td className="px-6 py-4 font-bold text-slate-900">{item.nasabahNama}</td>
+                          <td className="px-6 py-4 font-bold text-slate-900">{formatRp(item.jumlah)}</td>
+                          <td className="px-6 py-4">
+                            <span className={cn("rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest", formatStatusBadge(item.status))}>
+                              {item.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-slate-500">
+                            {new Date(item.createdAt).toLocaleString("id-ID")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {currentView === "Anggota" ? (
+          <div className="space-y-8">
+            <SectionHeader
+              title="Data Anggota"
+              description="Daftar anggota aktif dari database MySQL."
+              actions={
+                <button
+                  type="button"
+                  onClick={loadMembers}
+                  className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                >
+                  Refresh Anggota
+                </button>
+              }
+            />
+
+            {sectionError ? <div className="rounded-2xl bg-rose-50 p-4 text-sm font-medium text-rose-600">{sectionError}</div> : null}
+
+            <div className="overflow-hidden rounded-[2.5rem] border border-slate-100 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-left">
+                  <thead>
+                    <tr className="bg-slate-50/50">
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Nama</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Email</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Kontak</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Saldo</th>
+                      <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Setoran</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {memberData?.items.map((item) => (
+                      <tr key={item.id} className="transition-colors hover:bg-slate-50">
+                        <td className="px-6 py-4">
+                          <p className="font-bold text-slate-900">{item.nama}</p>
+                          <p className="mt-1 text-xs font-medium text-slate-400">{item.alamat || "Alamat belum diisi"}</p>
+                        </td>
+                        <td className="px-6 py-4 text-sm font-medium text-slate-600">{item.email}</td>
+                        <td className="px-6 py-4 text-sm font-medium text-slate-600">{item.noHp || "-"}</td>
+                        <td className="px-6 py-4 font-bold text-slate-900">{formatRp(item.saldo)}</td>
+                        <td className="px-6 py-4 font-bold text-slate-900">
+                          {formatKg(item.totalSetoranKg)} / {formatRp(item.totalSetoranRp)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {currentView === "Laporan" ? (
+          <div className="grid grid-cols-1 gap-8 xl:grid-cols-3">
+            <div className="space-y-6 xl:col-span-2">
+              <SectionHeader
+                title="Laporan Transaksi"
+                description={`Periode aktif ${reportPeriod}`}
+                actions={
+                  <>
+                    <button
+                      onClick={() => downloadCSV(reportData)}
+                      className="flex items-center gap-2 rounded-xl bg-slate-50 px-4 py-2 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-100"
+                    >
+                      <Download className="h-4 w-4" />
+                      CSV
+                    </button>
+                    <button
+                      onClick={() => exportPDF(reportData)}
+                      className="flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-white transition-colors hover:bg-slate-800"
+                    >
+                      <FileText className="h-4 w-4" />
+                      PDF
+                    </button>
+                  </>
+                }
+              />
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <InfoCard title="Total Setoran" value={formatKg(reportStats.totalSetoranKg)} hint="Akumulasi periode aktif" />
+                <InfoCard title="Saldo Poin" value={formatRp(reportStats.saldoPoinRp)} hint="Total nilai setoran" />
+                <InfoCard title="Transaksi" value={reportStats.transaksiCount.toString()} hint="Jumlah semua transaksi" />
+                <InfoCard title="Nasabah Unik" value={reportStats.uniqueUsers.toString()} hint="Pengguna dalam periode ini" />
+              </div>
+
+              <div className="overflow-hidden rounded-[2.5rem] border border-slate-100 bg-white shadow-sm">
+                {reportLoading ? (
+                  <div className="flex items-center justify-center gap-3 p-12 text-slate-400">
+                    <RefreshCw className="h-8 w-8 animate-spin" />
+                    <p className="font-bold">Memperbarui Data...</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse text-left">
+                      <thead>
+                        <tr className="bg-slate-50/50">
+                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Pelanggan</th>
+                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Tipe</th>
+                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Jumlah</th>
+                          <th className="px-8 py-4 text-xs font-bold uppercase tracking-widest text-slate-500">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {reportTransactions.map((transaction) => (
+                          <tr key={transaction.id} className="transition-colors hover:bg-slate-50/50">
+                            <td className="px-8 py-5">
+                              <p className="font-bold text-slate-900">{transaction.customer}</p>
+                              <p className="mt-1 text-[10px] font-bold uppercase tracking-tighter text-slate-400">
+                                {new Date(transaction.createdAt).toLocaleString("id-ID")}
+                              </p>
+                            </td>
+                            <td className="px-8 py-5">
+                              <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-blue-600">
+                                {transaction.type}
+                              </span>
+                            </td>
+                            <td className="px-8 py-5 font-black italic text-slate-900">{transaction.amount}</td>
+                            <td className="px-8 py-5">
+                              <span className={cn("rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest", formatStatusBadge(transaction.status))}>
+                                {transaction.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
-          </div>
 
-          {/* Sidebar Info/Filters */}
-          <div className="flex flex-col gap-8">
-            {/* Filter Card */}
-            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-sm space-y-6">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center">
-                  <Calendar className="w-5 h-5 text-blue-600" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-900">Filter Laporan</h3>
-              </div>
-              
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Mulai Dari</label>
-                  <input
-                    type="date"
-                    value={reportStart}
-                    onChange={(event) => setReportStart(event.target.value)}
-                    className="w-full bg-slate-50 border-0 ring-1 ring-slate-100 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-primary outline-none font-bold text-slate-700"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1">Hingga Akhir</label>
-                  <input
-                    type="date"
-                    value={reportEnd}
-                    onChange={(event) => setReportEnd(event.target.value)}
-                    className="w-full bg-slate-50 border-0 ring-1 ring-slate-100 rounded-2xl px-4 py-3 focus:ring-2 focus:ring-primary outline-none font-bold text-slate-700"
-                  />
-                </div>
-                <button 
-                  onClick={() => loadReport(reportStart, reportEnd)}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-slate-200 mt-2"
-                >
-                  Terapkan Filter
-                </button>
-              </div>
-            </div>
-
-            {/* Highlights */}
-            <div className="bg-emerald-900 rounded-[2.5rem] p-8 shadow-xl shadow-emerald-900/20 text-white space-y-6 relative overflow-hidden group">
-              <div className="absolute -right-4 -top-4 w-32 h-32 bg-white/10 rounded-full blur-3xl group-hover:scale-150 transition-transform duration-700" />
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <PlusCircle className="w-5 h-5" />
-                Program Unggulan
-              </h3>
-              <div className="space-y-4">
-                {programHighlights.map((item) => (
-                  <div key={item.title} className="bg-white/10 backdrop-blur-md rounded-2xl p-4 border border-white/10 hover:bg-white/20 transition-colors">
-                    <h4 className="font-bold text-emerald-300 mb-1">{item.title}</h4>
-                    <p className="text-xs text-emerald-50/70 leading-relaxed font-medium">{item.description}</p>
+            <div className="flex flex-col gap-8">
+              <div className="rounded-[2.5rem] border border-slate-100 bg-white p-8 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50">
+                    <Calendar className="h-5 w-5 text-blue-600" />
                   </div>
-                ))}
+                  <h3 className="text-lg font-bold text-slate-900">Filter Laporan</h3>
+                </div>
+
+                <div className="mt-6 space-y-4">
+                  <div className="space-y-2">
+                    <label className="ml-1 text-xs font-black uppercase tracking-widest text-slate-400">Mulai Dari</label>
+                    <input
+                      type="date"
+                      value={reportStart}
+                      onChange={(event) => setReportStart(event.target.value)}
+                      className="w-full rounded-2xl bg-slate-50 px-4 py-3 font-bold text-slate-700 outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="ml-1 text-xs font-black uppercase tracking-widest text-slate-400">Hingga Akhir</label>
+                    <input
+                      type="date"
+                      value={reportEnd}
+                      onChange={(event) => setReportEnd(event.target.value)}
+                      className="w-full rounded-2xl bg-slate-50 px-4 py-3 font-bold text-slate-700 outline-none ring-1 ring-slate-100 focus:ring-2 focus:ring-primary"
+                    />
+                  </div>
+                  <button
+                    onClick={() => loadReport(reportStart, reportEnd)}
+                    className="mt-2 w-full rounded-2xl bg-slate-900 py-4 font-bold text-white shadow-lg shadow-slate-200 transition-all hover:bg-slate-800"
+                  >
+                    Terapkan Filter
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        ) : null}
       </section>
     </main>
   );
